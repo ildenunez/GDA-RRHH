@@ -3,6 +3,9 @@
 
 
 
+
+
+
 import { User, Role, Department, LeaveRequest, RequestStatus, AppConfig, Notification, LeaveTypeConfig, EmailTemplate, ShiftType, ShiftAssignment, Holiday } from '../types';
 import { supabase } from './supabase';
 
@@ -187,6 +190,7 @@ class Store {
       return data.map(r => ({
           id: r.id,
           userId: r.user_id,
+          type_id: r.type_id, // kept for raw db mapping reference if needed, but mainly we map to camelCase below
           typeId: r.type_id,
           label: r.label,
           startDate: r.start_date,
@@ -198,7 +202,8 @@ class Store {
           isConsumed: r.is_consumed,
           consumedHours: r.consumed_hours,
           overtimeUsage: r.overtime_usage,
-          adminComment: r.admin_comment
+          adminComment: r.admin_comment,
+          createdByAdmin: r.created_by_admin
       }));
   }
 
@@ -334,31 +339,54 @@ class Store {
       }
   }
 
-  async createRequest(req: Partial<LeaveRequest>) {
+  async createRequest(req: Partial<LeaveRequest>, targetUserId?: string, initialStatus: RequestStatus = RequestStatus.PENDING) {
     if (!this.currentUser) return;
+    
+    // Determine target user (current user or admin-selected user)
+    const userId = targetUserId || this.currentUser.id;
+    const isCreatedByAdmin = !!targetUserId && targetUserId !== this.currentUser.id;
+
     const leaveType = this.config.leaveTypes.find(t => t.id === req.typeId);
     const label = leaveType ? leaveType.label : (req.typeId === 'overtime_earn' ? 'Horas Extra Generadas' : req.typeId === 'overtime_pay' ? 'Cobro Horas' : 'Canje Días por Horas');
+    
     const newReqPayload = {
-      user_id: this.currentUser.id,
+      user_id: userId,
       type_id: req.typeId || 'general',
       label: label,
       start_date: req.startDate!,
       end_date: req.endDate || null,
       hours: req.hours || 0,
       reason: req.reason || '',
-      status: RequestStatus.PENDING,
+      status: initialStatus,
       overtime_usage: req.overtimeUsage,
       is_consumed: false,
-      consumed_hours: 0
+      consumed_hours: 0,
+      created_by_admin: isCreatedByAdmin
     };
+
     const { data, error } = await supabase.from('requests').insert(newReqPayload).select().single();
     if (data && !error) {
         const realReq = this.mapRequestsFromDB([data])[0];
         this.requests.unshift(realReq);
-        this.createNotification(this.currentUser.id, `Nueva solicitud creada: ${label}`);
+        
+        // Notify User
+        if (isCreatedByAdmin) {
+             this.createNotification(userId, `Nueva solicitud creada por Admin: ${label} (${initialStatus})`);
+        } else {
+             this.createNotification(userId, `Nueva solicitud creada: ${label}`);
+        }
+        
+        // Send Email
         this.sendEmailNotification('created', realReq);
+
+        // If created as APPROVED, trigger balance updates immediately
+        if (initialStatus === RequestStatus.APPROVED) {
+            await this.updateRequestStatus(realReq.id, RequestStatus.APPROVED, this.currentUser.id, "Aprobada automáticamente al crear por Admin");
+        }
+
     } else {
         alert('Error al crear solicitud en base de datos');
+        console.error(error);
     }
   }
 
@@ -377,6 +405,61 @@ class Store {
   }
 
   async deleteRequest(reqId: string) {
+      const req = this.requests.find(r => r.id === reqId);
+      if (!req) return;
+
+      // Si la solicitud estaba APROBADA, debemos revertir los saldos
+      if (req.status === RequestStatus.APPROVED) {
+          const user = this.users.find(u => u.id === req.userId);
+          if (user) {
+              let newDays = user.daysAvailable;
+              let newOvertime = user.overtimeHours;
+              const type = this.config.leaveTypes.find(t => t.id === req.typeId);
+
+              // 1. Revertir saldos al usuario
+              if (type && type.subtractsDays) {
+                   const days = req.endDate ? Math.ceil((new Date(req.endDate).getTime() - new Date(req.startDate).getTime()) / (1000 * 3600 * 24)) + 1 : 1;
+                   newDays += days;
+              } else if (req.typeId === 'overtime_earn') {
+                   // Si generó horas, se las quitamos
+                   newOvertime -= (req.hours || 0);
+              } else if (req.typeId === 'overtime_spend_days') {
+                   // Si canjeó días (gastó horas), se las devolvemos y le quitamos los días ganados
+                   newOvertime += (req.hours || 0);
+                   newDays -= ((req.hours || 0) / 8); 
+              } else if (req.typeId === 'overtime_pay') {
+                   // Si cobró horas, se las devolvemos al saldo
+                   newOvertime += (req.hours || 0);
+              }
+
+              // Guardar cambios en usuario
+              user.daysAvailable = newDays;
+              user.overtimeHours = newOvertime;
+              await supabase.from('users').update({ 
+                  days_available: newDays, 
+                  overtime_hours: newOvertime 
+              }).eq('id', user.id);
+          }
+
+          // 2. Revertir uso de horas extra en registros originales (Trazabilidad)
+          if (req.overtimeUsage && req.overtimeUsage.length > 0) {
+              for (const usage of req.overtimeUsage) {
+                  const sourceReq = this.requests.find(r => r.id === usage.requestId);
+                  if (sourceReq) {
+                      const newConsumed = (sourceReq.consumedHours || 0) - usage.hoursUsed;
+                      sourceReq.consumedHours = Math.max(0, newConsumed);
+                      sourceReq.isConsumed = false; // Ya no puede estar agotado si le devolvemos horas
+                      
+                      await supabase.from('requests').update({ 
+                          consumed_hours: sourceReq.consumedHours, 
+                          is_consumed: false 
+                      }).eq('id', sourceReq.id);
+                  }
+              }
+          }
+      }
+
+      // 3. Borrar la solicitud
       this.requests = this.requests.filter(r => r.id !== reqId);
       await supabase.from('requests').delete().eq('id', reqId);
   }

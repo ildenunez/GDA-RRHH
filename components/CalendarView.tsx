@@ -1,8 +1,7 @@
-
 import React, { useState, useMemo } from 'react';
 import { User, RequestStatus, Role } from '../types';
 import { store } from '../services/store';
-import { ChevronLeft, ChevronRight, Filter, AlertTriangle } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Filter, AlertTriangle, Palmtree, Thermometer, Briefcase, User as UserIcon, Clock, Star, Check } from 'lucide-react';
 
 const DAYS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 const MONTHS = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
@@ -37,6 +36,15 @@ const CalendarView: React.FC<CalendarViewProps> = ({ user }) => {
   const prevMonth = () => setCurrentDate(new Date(year, month - 1, 1));
   const nextMonth = () => setCurrentDate(new Date(year, month + 1, 1));
 
+  // Helper para iconos gráficos
+  const getEventIcon = (label: string) => {
+      const lower = label.toLowerCase();
+      if (lower.includes('vacaci')) return <Palmtree size={24} className="opacity-80"/>;
+      if (lower.includes('baja') || lower.includes('medica')) return <Thermometer size={24} className="opacity-80"/>;
+      if (lower.includes('asuntos')) return <UserIcon size={24} className="opacity-80"/>;
+      return <Star size={24} className="opacity-80"/>;
+  };
+
   // Obtener eventos (ausencias y TURNOS)
   const getEventsForDay = (day: number) => {
     // FIX: Construir string local manualmente para evitar desfases de zona horaria (UTC vs Local)
@@ -49,8 +57,20 @@ const CalendarView: React.FC<CalendarViewProps> = ({ user }) => {
        return dateStr >= start && dateStr <= end;
     });
 
-    const myShift = store.getShiftForUserDate(user.id, dateStr);
     const holiday = store.config.holidays.find(h => h.date === dateStr);
+
+    // Lógica de Turno:
+    // Si es Supervisor/Admin, mostramos el turno siempre (no se oculta).
+    // Si es Trabajador, ocultamos el turno si tiene una ausencia APROBADA (vacaciones, etc).
+    let myShift = store.getShiftForUserDate(user.id, dateStr);
+
+    if (!isSupervisorOrAdmin) {
+        const myAbsences = absenceEvents.filter(r => r.userId === user.id);
+        const hasApprovedAbsence = myAbsences.some(r => r.status === RequestStatus.APPROVED && !store.isOvertimeRequest(r.typeId));
+        if (hasApprovedAbsence) {
+            myShift = undefined;
+        }
+    }
 
     return { absences: absenceEvents, shift: myShift, holiday };
   };
@@ -64,7 +84,6 @@ const CalendarView: React.FC<CalendarViewProps> = ({ user }) => {
       const daysToCheck = daysInMonth;
 
       for(let i = 1; i <= daysToCheck; i++) {
-          // FIX: Construcción manual de fecha
           const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
           
           const activeRequests = store.requests.filter(req => {
@@ -145,10 +164,10 @@ const CalendarView: React.FC<CalendarViewProps> = ({ user }) => {
             {DAYS.map(d => <div key={d} className="text-center text-sm font-semibold text-slate-400 uppercase tracking-wider">{d}</div>)}
             </div>
             
-            <div className="grid grid-cols-7 gap-2">
+            <div className="grid grid-cols-7 gap-3">
             {/* Padding Empty Cells */}
             {Array.from({ length: startingDay }).map((_, i) => (
-                <div key={`empty-${i}`} className="min-h-[100px] bg-slate-50/50 rounded-lg"></div>
+                <div key={`empty-${i}`} className="min-h-[120px] bg-slate-50/30 rounded-xl"></div>
             ))}
 
             {/* Days */}
@@ -156,61 +175,134 @@ const CalendarView: React.FC<CalendarViewProps> = ({ user }) => {
                 const day = i + 1;
                 const { absences, shift, holiday } = getEventsForDay(day);
                 const isToday = new Date().toDateString() === new Date(year, month, day).toDateString();
+                
+                // Priorizar la visualización: Festivo > Ausencia Aprobada > Turno > Ausencia Pendiente/Rechazada
+                const approvedAbsence = absences.find(a => a.status === RequestStatus.APPROVED && !store.isOvertimeRequest(a.typeId));
 
                 return (
                 <div 
                     key={day} 
-                    className={`min-h-[100px] border rounded-lg p-2 transition-all hover:shadow-md flex flex-col justify-between 
-                    ${holiday ? 'bg-red-50 border-red-200' : isToday ? 'bg-blue-50 ring-2 ring-blue-100 border-blue-200' : 'bg-white border-slate-100'}`}
+                    className={`min-h-[120px] border rounded-xl p-2 transition-all hover:shadow-lg flex flex-col relative overflow-hidden group
+                    ${holiday ? 'bg-red-50 border-red-200' : isToday ? 'bg-white ring-2 ring-blue-400 border-blue-200 shadow-md transform scale-[1.02]' : 'bg-white border-slate-100'}`}
                 >
-                    <div>
-                        <div className={`text-sm font-bold mb-1 flex justify-between ${holiday ? 'text-red-600' : isToday ? 'text-blue-600' : 'text-slate-700'}`}>
-                            {day}
-                        </div>
-                        
-                        {/* Holiday Label */}
-                        {holiday && (
-                            <div className="mb-2 text-[10px] uppercase font-bold text-red-500 tracking-tight leading-tight">
-                                {holiday.name}
-                            </div>
-                        )}
-                        
-                        <div className="space-y-1">
-                            {absences.map((ev, idx) => (
-                            <div 
-                                key={ev.id + idx} 
-                                className={`text-[10px] px-1.5 py-0.5 rounded truncate font-medium border-l-2
-                                ${ev.status === RequestStatus.APPROVED ? 'bg-green-100 text-green-700 border-green-500' : 
-                                    ev.status === RequestStatus.REJECTED ? 'bg-red-100 text-red-700 border-red-500' : 'bg-yellow-100 text-yellow-700 border-yellow-500'}
-                                `}
-                                title={`${getUserName(ev.userId)}: ${ev.label}`}
-                            >
-                                {getUserName(ev.userId)}
-                            </div>
-                            ))}
-                        </div>
+                    <div className={`text-sm font-bold mb-1 z-10 ${holiday ? 'text-red-600' : isToday ? 'text-blue-600' : 'text-slate-400'}`}>
+                        {day}
                     </div>
                     
-                    {/* Turno Visual */}
-                    {shift && !holiday && (
-                        <div 
-                            className="mt-1 text-[9px] font-bold text-white px-1.5 py-0.5 rounded shadow-sm truncate"
-                            style={{ backgroundColor: shift.color }}
-                            title={`Turno: ${shift.name} (${shift.segments.map(s => s.start+'-'+s.end).join(', ')})`}
-                        >
-                            {shift.name} ({shift.segments[0].start})
-                        </div>
-                    )}
+                    {/* CONTENIDO CENTRAL */}
+                    <div className="flex-1 flex flex-col justify-center items-center z-10 gap-1 w-full">
+                        
+                        {/* --- MODO SUPERVISOR/ADMIN: LISTADO DETALLADO --- */}
+                        {isSupervisorOrAdmin ? (
+                            <>
+                                {holiday && (
+                                    <div className="text-xs font-bold text-red-600 uppercase mb-1 flex items-center gap-1 justify-center">
+                                        <Star size={10} fill="currentColor"/> {holiday.name}
+                                    </div>
+                                )}
+                                
+                                {/* Lista de Ausencias (Texto) */}
+                                <div className="flex-1 w-full overflow-y-auto space-y-1 no-scrollbar">
+                                    {absences.length === 0 && !shift && !holiday && <span className="text-slate-200 text-xs flex h-full items-center justify-center">Libre</span>}
+                                    {absences.map((ev, idx) => (
+                                        <div 
+                                            key={ev.id + idx} 
+                                            className={`text-[9px] px-1.5 py-0.5 rounded border-l-2 truncate font-medium flex items-center gap-1
+                                            ${ev.status === RequestStatus.APPROVED ? 'bg-green-50 text-green-700 border-green-500' :
+                                              ev.status === RequestStatus.PENDING ? 'bg-yellow-50 text-yellow-700 border-yellow-500' : 
+                                              ev.status === RequestStatus.REJECTED ? 'bg-red-50 text-red-700 border-red-500 line-through opacity-60' : ''}
+                                            `}
+                                            title={`${getUserName(ev.userId)}: ${ev.label}`}
+                                        >
+                                            <span className="truncate"><strong>{getUserName(ev.userId)}</strong>: {ev.label}</span>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                {/* Barra de Turno (Mi Turno) */}
+                                {shift && (
+                                    <div 
+                                        className="w-full rounded text-white px-1.5 py-0.5 text-[9px] font-bold flex justify-between items-center mt-auto"
+                                        style={{ backgroundColor: shift.color }}
+                                        title={`Mi Turno: ${shift.name}`}
+                                    >
+                                        <span className="truncate">{shift.name}</span>
+                                        <span className="opacity-80 font-mono">{shift.segments[0].start}</span>
+                                    </div>
+                                )}
+                            </>
+                        ) : (
+                            /* --- MODO TRABAJADOR: VISUAL / WOW --- */
+                            <>
+                                {/* CASO 1: FESTIVO */}
+                                {holiday && (
+                                    <div className="text-center">
+                                        <Star className="mx-auto text-red-400 mb-1" size={28} fill="currentColor" fillOpacity={0.2} />
+                                        <span className="text-xs font-bold text-red-600 uppercase leading-tight block">{holiday.name}</span>
+                                    </div>
+                                )}
+
+                                {/* CASO 2: AUSENCIA APROBADA (Sobrescribe turno) */}
+                                {!holiday && approvedAbsence && (
+                                    <div className="w-full h-full bg-green-50 rounded-lg border border-green-100 flex flex-col items-center justify-center p-1 text-center animate-fade-in">
+                                        <div className="text-green-500 mb-1">{getEventIcon(approvedAbsence.label)}</div>
+                                        <span className="text-xs font-bold text-green-700 leading-tight line-clamp-2">{approvedAbsence.label}</span>
+                                    </div>
+                                )}
+
+                                {/* CASO 3: TURNO (Si no es festivo ni hay ausencia aprobada) */}
+                                {!holiday && !approvedAbsence && shift && (
+                                    <div 
+                                        className="w-full h-full rounded-lg flex flex-col items-center justify-center p-1 text-white shadow-sm animate-fade-in"
+                                        style={{ backgroundColor: shift.color }}
+                                    >
+                                        <Briefcase size={20} className="mb-0.5 opacity-90"/>
+                                        <span className="text-[10px] font-bold uppercase tracking-wide opacity-90">{shift.name}</span>
+                                        <div className="bg-black/20 rounded px-1.5 py-0.5 mt-1 text-[10px] font-mono flex items-center gap-1">
+                                            <Clock size={8}/>
+                                            {shift.segments[0].start}-{shift.segments[0].end}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* CASO 4: OTRAS SOLICITUDES (Pendientes) */}
+                                {!holiday && !approvedAbsence && !shift && absences.length > 0 && (
+                                     <div className="space-y-1 w-full">
+                                        {absences.map((ev, idx) => (
+                                            <div 
+                                                key={ev.id + idx} 
+                                                className={`text-[9px] px-1.5 py-1 rounded border-l-2 truncate font-medium flex items-center gap-1
+                                                ${ev.status === RequestStatus.PENDING ? 'bg-yellow-50 text-yellow-700 border-yellow-500' : 
+                                                  ev.status === RequestStatus.REJECTED ? 'bg-red-50 text-red-700 border-red-500 line-through opacity-60' : ''}
+                                                `}
+                                            >
+                                                <div className="w-1.5 h-1.5 rounded-full bg-current shrink-0"></div>
+                                                <span className="truncate">{ev.label}</span>
+                                            </div>
+                                        ))}
+                                     </div>
+                                )}
+
+                                {/* Estado Vacío */}
+                                {!holiday && !approvedAbsence && !shift && absences.length === 0 && (
+                                    <div className="text-slate-200 text-xs font-medium text-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                        Libre
+                                    </div>
+                                )}
+                            </>
+                        )}
+                    </div>
                 </div>
                 );
             })}
             </div>
         </div>
         
-        <div className="px-6 pb-6 flex gap-4 text-xs text-slate-500">
-            <div className="flex items-center gap-1"><div className="w-3 h-3 bg-green-100 border-l-2 border-green-500 rounded-sm"></div> Aprobado</div>
-            <div className="flex items-center gap-1"><div className="w-3 h-3 bg-yellow-100 border-l-2 border-yellow-500 rounded-sm"></div> Pendiente</div>
-            <div className="flex items-center gap-1"><div className="w-3 h-3 bg-red-50 border border-red-200 rounded-sm"></div> Festivo</div>
+        <div className="px-6 pb-6 flex gap-6 text-xs text-slate-500 border-t border-slate-100 pt-4 mx-6">
+            <div className="flex items-center gap-2"><div className="w-4 h-4 bg-green-100 border border-green-200 rounded flex items-center justify-center"><Check size={10} className="text-green-600"/></div> Ausencia Aprobada</div>
+            <div className="flex items-center gap-2"><div className="w-4 h-4 bg-yellow-50 border-l-2 border-yellow-500 rounded"></div> Solicitud Pendiente</div>
+            <div className="flex items-center gap-2"><div className="w-4 h-4 bg-red-100 border border-red-200 rounded"></div> Festivo</div>
+            <div className="flex items-center gap-2"><div className="w-4 h-4 bg-blue-500 rounded"></div> Turno Laboral</div>
         </div>
         </div>
 

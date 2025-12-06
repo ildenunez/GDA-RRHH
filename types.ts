@@ -64,6 +64,7 @@ export interface LeaveRequest {
   status: RequestStatus;
   createdAt: string;
   adminComment?: string; // Comentario del supervisor al aprobar/rechazar
+  createdByAdmin?: boolean; // Indicates if created by an admin on behalf of user
   
   // Trazabilidad de Horas
   isConsumed?: boolean; // Si true, este registro está AGOTADO totalmente

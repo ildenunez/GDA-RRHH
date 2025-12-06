@@ -1,10 +1,15 @@
 
 
+
+
+
+
 import React, { useState, useMemo } from 'react';
 import { User, RequestStatus, Role, LeaveRequest } from '../types';
 import { store } from '../services/store';
 import ShiftScheduler from './ShiftScheduler';
-import { Check, X, Users, Edit2, Shield, Trash2, AlertTriangle, Briefcase, FileText, Activity, Clock, CalendarDays, ExternalLink, UserPlus, MessageSquare, PieChart, TrendingUp, Calendar, Filter, Paintbrush } from 'lucide-react';
+import RequestFormModal from './RequestFormModal';
+import { Check, X, Users, Edit2, Shield, Trash2, AlertTriangle, Briefcase, FileText, Activity, Clock, CalendarDays, ExternalLink, UserPlus, MessageSquare, PieChart, TrendingUp, Calendar, Filter, Paintbrush, Plus } from 'lucide-react';
 
 export const Approvals: React.FC<{ user: User, onViewRequest: (req: LeaveRequest) => void }> = ({ user, onViewRequest }) => {
   const [pending, setPending] = useState(store.getPendingApprovalsForUser(user.id));
@@ -156,6 +161,10 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
   const [adjustmentHours, setAdjustmentHours] = useState<number>(0);
   const [adjustmentReasonHours, setAdjustmentReasonHours] = useState('');
 
+  // Estado para el modal de Crear/Editar Solicitud Manual (Admin)
+  const [showAdminRequestModal, setShowAdminRequestModal] = useState(false);
+  const [requestToEdit, setRequestToEdit] = useState<LeaveRequest | null>(null);
+
   // Lógica de Filtrado de Usuarios
   const displayUsers = useMemo(() => {
       let result = users;
@@ -282,6 +291,23 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
       if (confirm('¿Estás seguro de que quieres eliminar a este usuario? Esta acción no se puede deshacer.')) {
           store.deleteUser(userId);
           setUsers(store.getAllUsers());
+      }
+  };
+  
+  const handleEditRequest = (req: LeaveRequest) => {
+      setRequestToEdit(req);
+      setShowAdminRequestModal(true);
+  };
+
+  const handleDeleteRequest = async (reqId: string) => {
+      if(confirm('¿Borrar solicitud? Si está aprobada se devolverán los saldos correspondientes al usuario.')) {
+          await store.deleteRequest(reqId);
+          setUsers([...store.getAllUsers()]); // Force update in case balance changed
+          // Update local editing user to reflect balance changes immediately
+          if (editingUser) {
+              const updated = store.users.find(u => u.id === editingUser.id);
+              if (updated) setEditingUser({...updated});
+          }
       }
   };
 
@@ -664,31 +690,48 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
 
               {!isCreating && (
                   <div>
-                      <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
-                          <Clock size={18} className="text-slate-500"/> Historial de Solicitudes
-                      </h4>
+                      <div className="flex justify-between items-center mb-4">
+                        <h4 className="font-bold text-slate-800 flex items-center gap-2">
+                            <Clock size={18} className="text-slate-500"/> Historial de Solicitudes
+                        </h4>
+                        <button 
+                            type="button"
+                            onClick={() => { setRequestToEdit(null); setShowAdminRequestModal(true); }}
+                            className="text-xs bg-slate-900 text-white px-3 py-1.5 rounded-lg font-bold flex items-center gap-1 hover:bg-slate-800 transition-colors"
+                        >
+                            <Plus size={12}/> Crear Solicitud para {editingUser.name.split(' ')[0]}
+                        </button>
+                      </div>
                       <div className="bg-slate-50 rounded-xl border border-slate-200 overflow-hidden max-h-60 overflow-y-auto">
                           <table className="w-full text-xs text-left">
-                              <thead className="bg-slate-100 text-slate-500 font-semibold">
+                              <thead className="bg-slate-100 text-slate-500 font-semibold sticky top-0">
                                   <tr>
                                       <th className="px-4 py-2">Tipo</th>
                                       <th className="px-4 py-2">Fecha</th>
                                       <th className="px-4 py-2">Estado</th>
+                                      <th className="px-4 py-2 text-right">Acciones</th>
                                   </tr>
                               </thead>
                               <tbody className="divide-y divide-slate-100">
                                   {editingUserRequests.length === 0 ? (
-                                      <tr><td colSpan={3} className="p-4 text-center text-slate-400">Sin historial</td></tr>
+                                      <tr><td colSpan={4} className="p-4 text-center text-slate-400">Sin historial</td></tr>
                                   ) : (
                                       editingUserRequests.map(req => (
                                           <tr key={req.id} className="hover:bg-slate-200 cursor-pointer" onClick={() => onViewRequest(req)}>
-                                              <td className="px-4 py-2 font-medium">{req.label}</td>
+                                              <td className="px-4 py-2 font-medium">
+                                                  {req.label}
+                                                  {req.createdByAdmin && <span className="ml-1 text-[10px] text-purple-600 font-bold">(Admin)</span>}
+                                              </td>
                                               <td className="px-4 py-2">{new Date(req.startDate).toLocaleDateString()}</td>
                                               <td className="px-4 py-2">
                                                   <span className={`px-2 py-0.5 rounded-full ${
                                                       req.status === RequestStatus.APPROVED ? 'bg-green-100 text-green-700' : 
                                                       req.status === RequestStatus.REJECTED ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'
                                                   }`}>{req.status}</span>
+                                              </td>
+                                              <td className="px-4 py-2 text-right" onClick={e => e.stopPropagation()}>
+                                                  <button onClick={() => handleEditRequest(req)} className="text-blue-500 hover:bg-blue-100 p-1 rounded transition-colors mr-1" title="Editar"><Edit2 size={14}/></button>
+                                                  <button onClick={() => handleDeleteRequest(req.id)} className="text-red-500 hover:bg-red-100 p-1 rounded transition-colors" title="Borrar y Devolver Saldo"><Trash2 size={14}/></button>
                                               </td>
                                           </tr>
                                       ))
@@ -712,6 +755,17 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
             </form>
           </div>
         </div>
+      )}
+
+      {/* Modal de Creación/Edición Manual (Admin) */}
+      {showAdminRequestModal && editingUser && (
+          <RequestFormModal 
+             onClose={() => { setShowAdminRequestModal(false); setRequestToEdit(null); }}
+             user={currentUser}
+             targetUser={editingUser}
+             initialTab={requestToEdit && store.isOvertimeRequest(requestToEdit.typeId) ? 'overtime' : 'absence'}
+             editingRequest={requestToEdit}
+          />
       )}
     </div>
   );

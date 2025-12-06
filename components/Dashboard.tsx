@@ -1,11 +1,13 @@
 
 
 
+
+
 import React, { useState } from 'react';
 import { User, RequestStatus, LeaveRequest } from '../types';
 import { store } from '../services/store';
 import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { Calendar, Clock, AlertCircle, CheckCircle, XCircle, Sun, PlusCircle, Timer, ChevronRight, ArrowLeft, History, Edit2, Trash2, Briefcase } from 'lucide-react';
+import { Calendar, Clock, AlertCircle, CheckCircle, XCircle, Sun, PlusCircle, Timer, ChevronRight, ArrowLeft, History, Edit2, Trash2, Briefcase, ShieldCheck } from 'lucide-react';
 
 interface DashboardProps {
   user: User;
@@ -149,7 +151,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNewRequest, onEditRequest
                                         className="hover:bg-slate-50 cursor-pointer transition-colors"
                                     >
                                         <td className="px-6 py-4">
-                                            <div className="font-medium text-slate-800">{req.label}</div>
+                                            <div className="flex items-center gap-2">
+                                                <div className="font-medium text-slate-800">{req.label}</div>
+                                                {req.createdByAdmin && (
+                                                    <span className="bg-purple-100 text-purple-700 text-[10px] px-1.5 py-0.5 rounded-md font-bold flex items-center gap-0.5">
+                                                        <ShieldCheck size={10}/> Admin
+                                                    </span>
+                                                )}
+                                            </div>
                                             {req.reason && <div className="text-xs text-slate-500 italic mt-1">{req.reason}</div>}
                                         </td>
                                         <td className="px-6 py-4 text-slate-600">
@@ -299,7 +308,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNewRequest, onEditRequest
                 className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-100 cursor-pointer hover:bg-slate-100 transition-colors"
               >
                 <div>
-                  <p className="font-semibold text-slate-700 text-sm">{req.label}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="font-semibold text-slate-700 text-sm">{req.label}</p>
+                    {req.createdByAdmin && <ShieldCheck size={12} className="text-purple-500" title="Creada por Admin"/>}
+                  </div>
                   <p className="text-xs text-slate-500">{new Date(req.startDate).toLocaleDateString()} {req.hours ? `(${req.hours}h)` : ''}</p>
                 </div>
                 <div className="flex items-center gap-2">
