@@ -462,6 +462,37 @@ class Store {
       }
   }
 
+  // --- NUEVO: Actualización de Perfil (Usuario logueado) ---
+  async updateUserProfile(userId: string, data: { name: string, email: string, password?: string, avatar?: string }) {
+      const userIdx = this.users.findIndex(u => u.id === userId);
+      if (userIdx === -1) return;
+
+      const updates: any = {
+          name: data.name,
+          email: data.email,
+          avatar: data.avatar
+      };
+
+      if (data.password && data.password.trim() !== '') {
+          updates.password = data.password;
+      }
+
+      const { error } = await supabase.from('users').update(updates).eq('id', userId);
+
+      if (!error) {
+          // Actualizar estado local
+          const updatedUser = { ...this.users[userIdx], name: data.name, email: data.email };
+          if (data.avatar) updatedUser.avatar = data.avatar;
+          
+          this.users[userIdx] = updatedUser;
+          if (this.currentUser && this.currentUser.id === userId) {
+              this.currentUser = updatedUser;
+          }
+      } else {
+          throw new Error(error.message);
+      }
+  }
+
   async deleteUser(userId: string) {
       this.users = this.users.filter(u => u.id !== userId);
       this.requests = this.requests.filter(r => r.userId !== userId);
