@@ -1,9 +1,9 @@
 
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { User, RequestStatus, Role, LeaveRequest } from '../types';
 import { store } from '../services/store';
-import { Check, X, Users, Edit2, Shield, Trash2, AlertTriangle, Briefcase, FileText, Activity, Clock, CalendarDays, ExternalLink, UserPlus, MessageSquare } from 'lucide-react';
+import { Check, X, Users, Edit2, Shield, Trash2, AlertTriangle, Briefcase, FileText, Activity, Clock, CalendarDays, ExternalLink, UserPlus, MessageSquare, PieChart, TrendingUp, Calendar, Filter } from 'lucide-react';
 
 export const Approvals: React.FC<{ user: User, onViewRequest: (req: LeaveRequest) => void }> = ({ user, onViewRequest }) => {
   const [pending, setPending] = useState(store.getPendingApprovalsForUser(user.id));
@@ -143,6 +143,7 @@ export const Approvals: React.FC<{ user: User, onViewRequest: (req: LeaveRequest
 export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: LeaveRequest) => void }> = ({ currentUser, onViewRequest }) => {
   const [users, setUsers] = useState(store.getAllUsers());
   const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [filterDeptId, setFilterDeptId] = useState<string>('');
   
   // Estado para Creación
   const [newPassword, setNewPassword] = useState('');
@@ -153,13 +154,58 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
   const [adjustmentHours, setAdjustmentHours] = useState<number>(0);
   const [adjustmentReasonHours, setAdjustmentReasonHours] = useState('');
 
-  const displayUsers = currentUser.role === Role.ADMIN 
-    ? users 
-    : users.filter(u => {
-        const myDepts = store.departments.filter(d => d.supervisorIds.includes(currentUser.id)).map(d => d.id);
-        return myDepts.includes(u.departmentId);
-    });
+  // Lógica de Filtrado de Usuarios
+  const displayUsers = useMemo(() => {
+      let result = users;
+
+      // 1. Filtrar por Rol (Si es Supervisor, solo ve su equipo)
+      if (currentUser.role !== Role.ADMIN) {
+          const myDepts = store.departments.filter(d => d.supervisorIds.includes(currentUser.id)).map(d => d.id);
+          result = result.filter(u => myDepts.includes(u.departmentId));
+      }
+
+      // 2. Filtrar por Selección de Departamento (Solo Admin o Supervisor si quiere filtrar dentro de sus deptos)
+      if (filterDeptId) {
+          result = result.filter(u => u.departmentId === filterDeptId);
+      }
+
+      return result;
+  }, [users, currentUser, filterDeptId]);
   
+  // Estadísticas del Equipo (Se calculan sobre los usuarios visualizados)
+  const teamStats = useMemo(() => {
+      const today = new Date().toISOString().split('T')[0];
+      const totalMembers = displayUsers.length;
+      
+      // 1. Total Pendientes
+      const totalPendingDays = displayUsers.reduce((sum, u) => sum + u.daysAvailable, 0);
+      const totalPendingHours = displayUsers.reduce((sum, u) => sum + u.overtimeHours, 0);
+
+      // 2. % Ausencia Hoy
+      const absentMembers = displayUsers.filter(u => {
+          return store.requests.some(r => 
+              r.userId === u.id && 
+              r.status === RequestStatus.APPROVED &&
+              !store.isOvertimeRequest(r.typeId) &&
+              today >= r.startDate.split('T')[0] && 
+              today <= (r.endDate || r.startDate).split('T')[0]
+          );
+      });
+      const absentPercentage = totalMembers > 0 ? (absentMembers.length / totalMembers) * 100 : 0;
+
+      // 3. Próximas Ausencias (Próximos 7 días)
+      const upcomingAbsences = store.requests.filter(r => {
+          const userInTeam = displayUsers.find(u => u.id === r.userId);
+          const startDate = r.startDate.split('T')[0];
+          return userInTeam && 
+                 r.status === RequestStatus.APPROVED && 
+                 !store.isOvertimeRequest(r.typeId) &&
+                 startDate > today;
+      }).sort((a,b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime()).slice(0, 3);
+
+      return { totalPendingDays, totalPendingHours, absentPercentage, upcomingAbsences };
+  }, [displayUsers]);
+
   // Solicitudes del equipo (para mostrar en lista general)
   const teamUserIds = displayUsers.map(u => u.id);
   const teamRequests = store.requests.filter(r => teamUserIds.includes(r.userId)).sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -248,22 +294,97 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
 
   const isCreating = editingUser && editingUser.id === '';
 
+  // Determinar qué departamentos mostrar en el filtro
+  const availableDeptsForFilter = currentUser.role === Role.ADMIN 
+        ? store.departments 
+        : store.departments.filter(d => d.supervisorIds.includes(currentUser.id));
+
   return (
     <div className="space-y-8 animate-fade-in">
       
+      {/* SECCIÓN 0: Estadísticas de Equipo (Nuevo) */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex flex-col justify-between">
+              <div>
+                  <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Ausencia Actual</h3>
+                  <div className="flex items-end gap-2">
+                      <span className="text-2xl font-bold text-slate-800">{teamStats.absentPercentage.toFixed(0)}%</span>
+                      <PieChart size={18} className="text-blue-500 mb-1"/>
+                  </div>
+              </div>
+              <div className="w-full bg-slate-100 rounded-full h-1.5 mt-2">
+                  <div className="bg-blue-500 h-1.5 rounded-full" style={{ width: `${teamStats.absentPercentage}%` }}></div>
+              </div>
+          </div>
+
+          <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm col-span-1 md:col-span-1">
+              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Próximas Ausencias</h3>
+              <div className="space-y-2">
+                  {teamStats.upcomingAbsences.length === 0 ? (
+                      <p className="text-xs text-slate-400 italic">No hay ausencias programadas pronto.</p>
+                  ) : (
+                      teamStats.upcomingAbsences.map(req => (
+                          <div key={req.id} className="flex justify-between items-center text-xs">
+                              <div className="flex items-center gap-2">
+                                  <img src={store.users.find(u=>u.id===req.userId)?.avatar} className="w-5 h-5 rounded-full"/>
+                                  <span className="font-medium truncate max-w-[80px]">{store.users.find(u=>u.id===req.userId)?.name.split(' ')[0]}</span>
+                              </div>
+                              <span className="text-slate-500">{new Date(req.startDate).getDate()}/{new Date(req.startDate).getMonth()+1}</span>
+                          </div>
+                      ))
+                  )}
+              </div>
+          </div>
+
+          <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm">
+              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Días Pendientes (Total)</h3>
+              <div className="flex items-center gap-2 mt-1">
+                  <Calendar className="text-orange-500" size={20}/>
+                  <span className="text-2xl font-bold text-slate-800">{teamStats.totalPendingDays}</span>
+                  <span className="text-xs text-slate-500">días en total</span>
+              </div>
+          </div>
+
+          <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm">
+              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Horas Pendientes (Total)</h3>
+              <div className="flex items-center gap-2 mt-1">
+                  <Clock className="text-blue-500" size={20}/>
+                  <span className="text-2xl font-bold text-slate-800">{teamStats.totalPendingHours}h</span>
+                  <span className="text-xs text-slate-500">horas a disfrutar</span>
+              </div>
+          </div>
+      </div>
+
       {/* SECCIÓN 1: Tabla de Usuarios */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-        <div className="p-6 border-b border-slate-100 flex justify-between items-center">
+        <div className="p-6 border-b border-slate-100 flex flex-col md:flex-row justify-between items-center gap-4">
           <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
             <Users className="text-blue-600"/> Gestión de Usuarios {currentUser.role === Role.ADMIN ? '(Global)' : '(Equipo)'}
           </h2>
-          <div className="flex gap-4 items-center">
-              <span className="text-sm text-slate-500 bg-slate-100 px-3 py-1 rounded-full">
-                  {displayUsers.length} Empleados
+          
+          <div className="flex gap-3 items-center w-full md:w-auto">
+              {/* FILTRO DEPARTAMENTO */}
+              <div className="relative flex-1 md:flex-none">
+                  <Filter className="absolute left-3 top-2.5 text-slate-400 w-4 h-4" />
+                  <select 
+                      className="w-full md:w-48 pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-50 focus:bg-white transition-colors"
+                      value={filterDeptId}
+                      onChange={(e) => setFilterDeptId(e.target.value)}
+                  >
+                      <option value="">Todos los Dptos.</option>
+                      {availableDeptsForFilter.map(d => (
+                          <option key={d.id} value={d.id}>{d.name}</option>
+                      ))}
+                  </select>
+              </div>
+
+              <span className="text-sm text-slate-500 bg-slate-100 px-3 py-1 rounded-full whitespace-nowrap">
+                  {displayUsers.length} Emp.
               </span>
+              
               {currentUser.role === Role.ADMIN && (
-                  <button onClick={openCreateModal} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-md transition-colors">
-                      <UserPlus size={16} /> Nuevo Usuario
+                  <button onClick={openCreateModal} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-md transition-colors whitespace-nowrap">
+                      <UserPlus size={16} /> Nuevo
                   </button>
               )}
           </div>
