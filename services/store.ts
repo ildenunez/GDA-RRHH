@@ -1,4 +1,5 @@
 
+
 import { User, Role, Department, LeaveRequest, RequestStatus, AppConfig, Notification, LeaveTypeConfig, EmailTemplate } from '../types';
 import { supabase } from './supabase';
 
@@ -10,7 +11,6 @@ const DEFAULT_LEAVE_TYPES: LeaveTypeConfig[] = [
 ];
 
 const DEFAULT_EMAIL_TEMPLATES: EmailTemplate[] = [
-  // ... (Manteniendo las plantillas por defecto para la configuración inicial)
   {
     id: 'request_created',
     label: 'Ausencia: Nueva Solicitud',
@@ -89,10 +89,10 @@ class Store {
   requests: LeaveRequest[] = [];
   notifications: Notification[] = [];
   config: AppConfig = {
-    leaveTypes: [...DEFAULT_LEAVE_TYPES],
+    leaveTypes: [], // Se cargarán de DB
     emailTemplates: [...DEFAULT_EMAIL_TEMPLATES],
     shifts: ['Mañana (8-15)', 'Tarde (15-22)', 'Noche (22-6)'],
-    smtpSettings: { host: 'smtp.gmail.com', port: 587, user: 'admin@empresa.com', enabled: false }
+    smtpSettings: { host: 'smtp.gmail.com', port: 587, user: 'admin@empresa.com', password: '', enabled: false }
   };
 
   currentUser: User | null = null;
@@ -106,6 +106,8 @@ class Store {
         const { data: usersData } = await supabase.from('users').select('*');
         const { data: deptsData } = await supabase.from('departments').select('*');
         const { data: reqsData } = await supabase.from('requests').select('*');
+        const { data: typesData } = await supabase.from('leave_types').select('*');
+        const { data: notifData } = await supabase.from('notifications').select('*');
 
         if (usersData) this.users = this.mapUsersFromDB(usersData);
         if (deptsData) this.departments = deptsData.map((d: any) => ({
@@ -114,15 +116,28 @@ class Store {
             supervisorIds: d.supervisor_ids || []
         }));
         if (reqsData) this.requests = this.mapRequestsFromDB(reqsData);
+        if (notifData) this.notifications = this.mapNotificationsFromDB(notifData);
+        
+        // Cargar Tipos de Ausencia o usar defaults si la tabla está vacía
+        if (typesData && typesData.length > 0) {
+            this.config.leaveTypes = typesData.map((t: any) => ({
+                id: t.id,
+                label: t.label,
+                subtractsDays: t.subtracts_days,
+                fixedRange: t.fixed_range
+            }));
+        } else {
+            this.config.leaveTypes = [...DEFAULT_LEAVE_TYPES];
+            // Opcional: Podríamos persistir los defaults aquí
+        }
         
         this.initialized = true;
     } catch (error) {
         console.error("Error connecting to Supabase:", error);
-        // Fallback a datos vacíos o manejar error visualmente
     }
   }
 
-  // Mapeadores para convertir snake_case de DB a camelCase de TS
+  // Mapeadores
   private mapUsersFromDB(data: any[]): User[] {
       return data.map(u => ({
           id: u.id,
@@ -150,22 +165,30 @@ class Store {
           createdAt: r.created_at,
           isConsumed: r.is_consumed,
           consumedHours: r.consumed_hours,
-          overtimeUsage: r.overtime_usage
+          overtimeUsage: r.overtime_usage,
+          adminComment: r.admin_comment
       }));
+  }
+
+  private mapNotificationsFromDB(data: any[]): Notification[] {
+      return data.map(n => ({
+          id: n.id,
+          userId: n.user_id,
+          message: n.message,
+          read: n.read,
+          date: n.created_at
+      })).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }
 
   async login(email: string, pass: string): Promise<User | null> {
     if (!this.initialized) await this.init();
-
-    // En producción usaríamos supabase.auth.signInWithPassword
-    // Aquí simulamos auth contra nuestra tabla de usuarios personalizada
     const user = this.users.find(u => u.email === email);
-    
-    // Validación simplificada (en real comparar hash)
-    // Para el demo aceptamos contraseña maestra 1234 o la específica
-    if (user && (pass === '1234' || pass === '8019')) { 
-      this.currentUser = user;
-      return user;
+    if (user && user.id) {
+        const { data } = await supabase.from('users').select('password').eq('id', user.id).single();
+        if (data && (data.password === pass)) {
+            this.currentUser = user;
+            return user;
+        }
     }
     return null;
   }
@@ -253,8 +276,41 @@ class Store {
   }
   
   private sendEmailNotification(action: 'created' | 'approved' | 'rejected', req: LeaveRequest) {
-      // Simulación: en una app real esto llamaría a una Edge Function de Supabase
       console.log(`[EMAIL] Acción: ${action} para solicitud ${req.id}`);
+  }
+
+  // --- SMTP y Emails Manuales ---
+  updateSmtpSettings(settings: AppConfig['smtpSettings']) {
+      this.config.smtpSettings = settings;
+      // Persistir si fuera necesario (e.g. tabla settings)
+  }
+
+  async sendManualEmail(to: string | string[], subject: string, body: string) {
+      console.log(`[SMTP] Enviando email a: ${Array.isArray(to) ? to.join(', ') : to}`);
+      console.log(`[SMTP] Asunto: ${subject}`);
+      console.log(`[SMTP] Cuerpo: ${body}`);
+      return new Promise(resolve => setTimeout(resolve, 1000));
+  }
+
+  async sendMassNotification(userIds: string[], message: string) {
+      if (userIds.length === 0) return;
+
+      const payload = userIds.map(uid => ({
+          user_id: uid,
+          message,
+          read: false
+      }));
+
+      const { data, error } = await supabase.from('notifications').insert(payload).select();
+      
+      if (data && !error) {
+          // Agregar al store local para actualización instantánea
+          const newNotifs = this.mapNotificationsFromDB(data);
+          this.notifications.unshift(...newNotifs);
+      } else {
+          console.error("Error enviando notificaciones masivas", error);
+          alert(`Error al enviar notificaciones: ${error?.message || JSON.stringify(error)}`);
+      }
   }
 
   async createRequest(req: Partial<LeaveRequest>) {
@@ -277,37 +333,14 @@ class Store {
       consumed_hours: 0
     };
 
-    // Actualización Optimista
-    const tempId = Math.random().toString();
-    const optimisticReq: LeaveRequest = {
-        id: tempId,
-        userId: this.currentUser.id,
-        typeId: newReqPayload.type_id,
-        label: label,
-        startDate: newReqPayload.start_date,
-        endDate: newReqPayload.end_date || undefined,
-        hours: newReqPayload.hours,
-        reason: newReqPayload.reason,
-        status: RequestStatus.PENDING,
-        createdAt: new Date().toISOString(),
-        overtimeUsage: req.overtimeUsage
-    };
-    this.requests.unshift(optimisticReq);
-
-    // Persistencia DB
     const { data, error } = await supabase.from('requests').insert(newReqPayload).select().single();
     
     if (data && !error) {
-        // Reemplazar optimista con real
         const realReq = this.mapRequestsFromDB([data])[0];
-        const idx = this.requests.findIndex(r => r.id === tempId);
-        if (idx !== -1) this.requests[idx] = realReq;
-        
+        this.requests.unshift(realReq);
         this.createNotification(this.currentUser.id, `Nueva solicitud creada: ${label}`);
         this.sendEmailNotification('created', realReq);
     } else {
-        // Rollback
-        this.requests = this.requests.filter(r => r.id !== tempId);
         alert('Error al crear solicitud en base de datos');
     }
   }
@@ -315,10 +348,6 @@ class Store {
   async updateRequest(reqId: string, data: Partial<LeaveRequest>) {
     const idx = this.requests.findIndex(r => r.id === reqId);
     if (idx === -1) return;
-
-    // Solo optimista por brevedad, en prod manejar error
-    const updatedLocal = { ...this.requests[idx], ...data };
-    this.requests[idx] = updatedLocal;
 
     await supabase.from('requests').update({
         start_date: data.startDate,
@@ -328,7 +357,9 @@ class Store {
         overtime_usage: data.overtimeUsage
     }).eq('id', reqId);
     
-    this.createNotification(updatedLocal.userId, `Solicitud actualizada`);
+    // Update local
+    this.requests[idx] = { ...this.requests[idx], ...data };
+    this.createNotification(this.requests[idx].userId, `Solicitud actualizada`);
   }
 
   async deleteRequest(reqId: string) {
@@ -336,14 +367,13 @@ class Store {
       await supabase.from('requests').delete().eq('id', reqId);
   }
 
-  async updateRequestStatus(reqId: string, status: RequestStatus, adminId: string) {
+  async updateRequestStatus(reqId: string, status: RequestStatus, adminId: string, comment?: string) {
     const reqIndex = this.requests.findIndex(r => r.id === reqId);
     if (reqIndex === -1) return;
     
     const req = this.requests[reqIndex];
     const user = this.users.find(u => u.id === req.userId);
     
-    // Calcular nuevos saldos
     let newDays = user?.daysAvailable || 0;
     let newOvertime = user?.overtimeHours || 0;
 
@@ -365,18 +395,14 @@ class Store {
             newDays += ((req.hours || 0) / 8); 
          }
          
-         // Actualizar registros consumidos (Trazabilidad)
          if (req.overtimeUsage) {
              for (const usage of req.overtimeUsage) {
                  const sourceReq = this.requests.find(r => r.id === usage.requestId);
                  if (sourceReq) {
                      const newConsumed = (sourceReq.consumedHours || 0) + usage.hoursUsed;
                      const isFullyConsumed = newConsumed >= (sourceReq.hours || 0);
-                     
                      sourceReq.consumedHours = newConsumed;
                      sourceReq.isConsumed = isFullyConsumed;
-                     
-                     // Update DB Source Request
                      await supabase.from('requests').update({
                          consumed_hours: newConsumed,
                          is_consumed: isFullyConsumed
@@ -386,7 +412,6 @@ class Store {
          }
       }
       
-      // Update User Balance in DB
       await supabase.from('users').update({
           days_available: newDays,
           overtime_hours: newOvertime
@@ -396,14 +421,45 @@ class Store {
       user.overtimeHours = newOvertime;
     }
 
-    // Update Request Status in DB
-    this.requests[reqIndex] = { ...req, status };
-    await supabase.from('requests').update({ status }).eq('id', reqId);
+    this.requests[reqIndex] = { ...req, status, adminComment: comment };
+    
+    // Update DB including admin_comment
+    await supabase.from('requests').update({ 
+        status, 
+        admin_comment: comment 
+    }).eq('id', reqId);
 
     this.createNotification(req.userId, `Tu solicitud ${req.label} ha sido ${status}`);
     
     if (status === RequestStatus.APPROVED) this.sendEmailNotification('approved', req);
     if (status === RequestStatus.REJECTED) this.sendEmailNotification('rejected', req);
+  }
+
+  async createUser(userData: Omit<User, 'id'>, password: string): Promise<void> {
+      const newId = Math.random().toString(36).substr(2, 9);
+      
+      const payload = {
+          id: newId,
+          name: userData.name,
+          email: userData.email,
+          password: password,
+          role: userData.role,
+          department_id: userData.departmentId || null, 
+          days_available: userData.daysAvailable,
+          overtime_hours: userData.overtimeHours,
+          avatar: userData.avatar
+      };
+
+      const { error } = await supabase.from('users').insert(payload);
+
+      if (!error) {
+          const newUser: User = { ...userData, id: newId };
+          this.users.push(newUser);
+      } else {
+          console.error('Error creating user', error);
+          const msg = error.message || JSON.stringify(error);
+          alert('Error al crear usuario: ' + msg);
+      }
   }
 
   async deleteUser(userId: string) {
@@ -429,20 +485,34 @@ class Store {
      }
   }
 
-  addLeaveType(type: LeaveTypeConfig) {
+  // --- PERSISTENCIA DE TIPOS DE AUSENCIA ---
+  async addLeaveType(type: LeaveTypeConfig) {
       this.config.leaveTypes.push(type);
-      // En una implementación real, guardaríamos config en DB
+      await supabase.from('leave_types').insert({
+          id: type.id,
+          label: type.label,
+          subtracts_days: type.subtractsDays,
+          fixed_range: type.fixedRange
+      });
   }
 
-  updateLeaveType(updatedType: LeaveTypeConfig) {
+  async updateLeaveType(updatedType: LeaveTypeConfig) {
       const idx = this.config.leaveTypes.findIndex(t => t.id === updatedType.id);
       if (idx !== -1) this.config.leaveTypes[idx] = updatedType;
+      
+      await supabase.from('leave_types').update({
+          label: updatedType.label,
+          subtracts_days: updatedType.subtractsDays,
+          fixed_range: updatedType.fixedRange
+      }).eq('id', updatedType.id);
   }
 
-  removeLeaveType(id: string) {
+  async removeLeaveType(id: string) {
       this.config.leaveTypes = this.config.leaveTypes.filter(t => t.id !== id);
+      await supabase.from('leave_types').delete().eq('id', id);
   }
 
+  // --- PERSISTENCIA DE DEPARTAMENTOS ---
   async addDepartment(dept: Department) {
     this.departments.push(dept);
     await supabase.from('departments').insert({
@@ -464,8 +534,8 @@ class Store {
   async removeDepartment(id: string) {
     this.departments = this.departments.filter(d => d.id !== id);
     this.users.forEach(u => { if (u.departmentId === id) u.departmentId = ''; });
+    
     await supabase.from('departments').delete().eq('id', id);
-    // Unlink users
     await supabase.from('users').update({ department_id: null }).eq('department_id', id);
   }
 
@@ -474,14 +544,48 @@ class Store {
       if (idx !== -1) this.config.emailTemplates[idx] = template;
   }
 
-  createNotification(userId: string, message: string) {
-    this.notifications.unshift({
-      id: Math.random().toString(),
-      userId,
-      message,
-      read: false,
-      date: new Date().toISOString()
-    });
+  // --- GESTIÓN DE NOTIFICACIONES (Persistentes) ---
+  
+  async createNotification(userId: string, message: string) {
+    const { data } = await supabase.from('notifications').insert({
+        user_id: userId,
+        message,
+        read: false
+    }).select().single();
+
+    if (data) {
+        this.notifications.unshift({
+            id: data.id,
+            userId: data.user_id,
+            message: data.message,
+            read: data.read,
+            date: data.created_at
+        });
+    }
+  }
+
+  getNotificationsForUser(userId: string) {
+      return this.notifications.filter(n => n.userId === userId);
+  }
+
+  async markNotificationAsRead(notifId: string) {
+      const notif = this.notifications.find(n => n.id === notifId);
+      if (notif) {
+          notif.read = true;
+          await supabase.from('notifications').update({ read: true }).eq('id', notifId);
+      }
+  }
+
+  async markAllNotificationsAsRead(userId: string) {
+      this.notifications.forEach(n => {
+          if (n.userId === userId) n.read = true;
+      });
+      await supabase.from('notifications').update({ read: true }).eq('user_id', userId);
+  }
+
+  async deleteNotification(notifId: string) {
+      this.notifications = this.notifications.filter(n => n.id !== notifId);
+      await supabase.from('notifications').delete().eq('id', notifId);
   }
 }
 

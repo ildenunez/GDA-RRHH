@@ -1,15 +1,27 @@
 
+
 import React, { useState } from 'react';
 import { User, RequestStatus, Role, LeaveRequest } from '../types';
 import { store } from '../services/store';
-import { Check, X, Users, Edit2, Shield, Trash2, AlertTriangle, Briefcase, FileText, Activity, Clock, CalendarDays, ExternalLink } from 'lucide-react';
+import { Check, X, Users, Edit2, Shield, Trash2, AlertTriangle, Briefcase, FileText, Activity, Clock, CalendarDays, ExternalLink, UserPlus, MessageSquare } from 'lucide-react';
 
 export const Approvals: React.FC<{ user: User, onViewRequest: (req: LeaveRequest) => void }> = ({ user, onViewRequest }) => {
   const [pending, setPending] = useState(store.getPendingApprovalsForUser(user.id));
+  
+  // Estado para el modal de confirmación
+  const [confirmAction, setConfirmAction] = useState<{reqId: string, status: RequestStatus} | null>(null);
+  const [adminComment, setAdminComment] = useState('');
 
-  const handleAction = (reqId: string, status: RequestStatus) => {
-    store.updateRequestStatus(reqId, status, user.id);
-    setPending(store.getPendingApprovalsForUser(user.id));
+  const handleActionClick = (reqId: string, status: RequestStatus) => {
+      setConfirmAction({ reqId, status });
+      setAdminComment('');
+  };
+
+  const executeAction = async () => {
+      if (!confirmAction) return;
+      await store.updateRequestStatus(confirmAction.reqId, confirmAction.status, user.id, adminComment);
+      setPending(store.getPendingApprovalsForUser(user.id));
+      setConfirmAction(null);
   };
 
   const absences = pending.filter(r => !store.isOvertimeRequest(r.typeId));
@@ -48,10 +60,10 @@ export const Approvals: React.FC<{ user: User, onViewRequest: (req: LeaveRequest
                       </div>
                     </div>
                     <div className="flex gap-2">
-                      <button onClick={() => handleAction(req.id, RequestStatus.REJECTED)} className="px-4 py-2 text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors flex items-center gap-1">
+                      <button onClick={() => handleActionClick(req.id, RequestStatus.REJECTED)} className="px-4 py-2 text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors flex items-center gap-1">
                         <X size={16} /> Rechazar
                       </button>
-                      <button onClick={() => handleAction(req.id, RequestStatus.APPROVED)} className="px-4 py-2 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-lg shadow-sm transition-colors flex items-center gap-1">
+                      <button onClick={() => handleActionClick(req.id, RequestStatus.APPROVED)} className="px-4 py-2 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-lg shadow-sm transition-colors flex items-center gap-1">
                         <Check size={16} /> Aprobar
                       </button>
                     </div>
@@ -77,6 +89,53 @@ export const Approvals: React.FC<{ user: User, onViewRequest: (req: LeaveRequest
             icon={Clock} 
             colorClass="text-blue-500" 
         />
+
+        {/* Modal de Confirmación de Acción */}
+        {confirmAction && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4 backdrop-blur-sm">
+                <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl animate-scale-in">
+                    <div className="p-6 border-b border-slate-100">
+                        <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                            {confirmAction.status === RequestStatus.APPROVED ? <Check className="text-green-500"/> : <X className="text-red-500"/>}
+                            Confirmar {confirmAction.status === RequestStatus.APPROVED ? 'Aprobación' : 'Rechazo'}
+                        </h3>
+                    </div>
+                    <div className="p-6 space-y-4">
+                        <p className="text-sm text-slate-600">
+                            ¿Estás seguro de que deseas <strong>{confirmAction.status === RequestStatus.APPROVED ? 'APROBAR' : 'RECHAZAR'}</strong> esta solicitud?
+                        </p>
+                        <div>
+                            <label className="block text-sm font-semibold text-slate-700 mb-2 flex items-center gap-2">
+                                <MessageSquare size={16}/> Comentario (Opcional)
+                            </label>
+                            <textarea 
+                                className="w-full p-3 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                                rows={3}
+                                placeholder="Añade un motivo o mensaje para el empleado..."
+                                value={adminComment}
+                                onChange={e => setAdminComment(e.target.value)}
+                            />
+                        </div>
+                    </div>
+                    <div className="p-4 bg-slate-50 rounded-b-2xl flex justify-end gap-3">
+                        <button 
+                            onClick={() => setConfirmAction(null)} 
+                            className="px-4 py-2 text-slate-600 hover:bg-slate-200 rounded-lg font-medium transition-colors"
+                        >
+                            Cancelar
+                        </button>
+                        <button 
+                            onClick={executeAction}
+                            className={`px-4 py-2 text-white font-bold rounded-lg shadow-md transition-colors ${
+                                confirmAction.status === RequestStatus.APPROVED ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'
+                            }`}
+                        >
+                            Confirmar Acción
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )}
     </div>
   );
 };
@@ -85,6 +144,9 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
   const [users, setUsers] = useState(store.getAllUsers());
   const [editingUser, setEditingUser] = useState<User | null>(null);
   
+  // Estado para Creación
+  const [newPassword, setNewPassword] = useState('');
+
   // Estado para los ajustes manuales en el modal
   const [adjustmentDays, setAdjustmentDays] = useState<number>(0);
   const [adjustmentReasonDays, setAdjustmentReasonDays] = useState('');
@@ -103,19 +165,49 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
   const teamRequests = store.requests.filter(r => teamUserIds.includes(r.userId)).sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
   // Solicitudes del usuario que se está editando
-  const editingUserRequests = editingUser ? store.requests.filter(r => r.userId === editingUser.id).sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()) : [];
+  const editingUserRequests = editingUser && editingUser.id ? store.requests.filter(r => r.userId === editingUser.id).sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()) : [];
 
   const openEditModal = (u: User) => {
       setEditingUser({...u});
+      setNewPassword(''); // Reset
       setAdjustmentDays(0);
       setAdjustmentReasonDays('');
       setAdjustmentHours(0);
       setAdjustmentReasonHours('');
   }
 
-  const handleUpdateUser = (e: React.FormEvent) => {
+  const openCreateModal = () => {
+      setEditingUser({
+          id: '', // Empty ID signifies creation
+          name: '',
+          email: '',
+          role: Role.WORKER,
+          departmentId: store.departments[0]?.id || '',
+          daysAvailable: 22,
+          overtimeHours: 0,
+          avatar: ''
+      });
+      setNewPassword('');
+      setAdjustmentDays(0);
+      setAdjustmentReasonDays('');
+      setAdjustmentHours(0);
+      setAdjustmentReasonHours('');
+  }
+
+  const handleUpdateUser = async (e: React.FormEvent) => {
     e.preventDefault();
-    if(editingUser) {
+    if(!editingUser) return;
+
+    // CREACIÓN
+    if (editingUser.id === '') {
+        if (!newPassword) {
+            alert('La contraseña es obligatoria para nuevos usuarios.');
+            return;
+        }
+        await store.createUser(editingUser, newPassword);
+    } 
+    // EDICIÓN
+    else {
         store.updateUserRole(editingUser.id, editingUser.role);
         
         const originalUser = store.users.find(u => u.id === editingUser.id);
@@ -139,10 +231,10 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
         }
         
         store.updateUserBalance(editingUser.id, newBalanceDays, newBalanceHours);
-
-        setUsers(store.getAllUsers());
-        setEditingUser(null);
     }
+
+    setUsers(store.getAllUsers());
+    setEditingUser(null);
   };
 
   const handleDeleteUser = (userId: string) => {
@@ -154,6 +246,8 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
 
   const getDeptName = (id: string) => store.departments.find(d => d.id === id)?.name || id;
 
+  const isCreating = editingUser && editingUser.id === '';
+
   return (
     <div className="space-y-8 animate-fade-in">
       
@@ -163,9 +257,16 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
           <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
             <Users className="text-blue-600"/> Gestión de Usuarios {currentUser.role === Role.ADMIN ? '(Global)' : '(Equipo)'}
           </h2>
-          <span className="text-sm text-slate-500 bg-slate-100 px-3 py-1 rounded-full">
-              {displayUsers.length} Empleados
-          </span>
+          <div className="flex gap-4 items-center">
+              <span className="text-sm text-slate-500 bg-slate-100 px-3 py-1 rounded-full">
+                  {displayUsers.length} Empleados
+              </span>
+              {currentUser.role === Role.ADMIN && (
+                  <button onClick={openCreateModal} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-md transition-colors">
+                      <UserPlus size={16} /> Nuevo Usuario
+                  </button>
+              )}
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm text-slate-600">
@@ -267,13 +368,14 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
         </div>
       </div>
 
-      {/* MODAL DE EDICIÓN DE USUARIO */}
+      {/* MODAL DE EDICIÓN / CREACIÓN */}
       {editingUser && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm overflow-y-auto">
           <div className="bg-white rounded-2xl w-full max-w-3xl shadow-2xl animate-scale-in my-8">
             <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50 rounded-t-2xl">
                 <h3 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-                    <Briefcase className="text-blue-600"/> Ficha de Empleado
+                    {isCreating ? <UserPlus className="text-blue-600"/> : <Briefcase className="text-blue-600"/>}
+                    {isCreating ? 'Nuevo Empleado' : 'Ficha de Empleado'}
                 </h3>
                 <button onClick={() => setEditingUser(null)} className="text-slate-400 hover:text-slate-600"><X /></button>
             </div>
@@ -284,14 +386,14 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
                     <label className="block text-sm font-semibold text-slate-700 mb-2">Nombre Completo</label>
-                    <input type="text" className="w-full p-2.5 border border-slate-200 rounded-lg bg-slate-50 focus:bg-white transition-colors"
+                    <input type="text" required className="w-full p-2.5 border border-slate-200 rounded-lg bg-slate-50 focus:bg-white transition-colors"
                         value={editingUser.name}
                         onChange={e => setEditingUser({...editingUser, name: e.target.value})}
                     />
                   </div>
                   <div>
                     <label className="block text-sm font-semibold text-slate-700 mb-2">Email Corporativo</label>
-                    <input type="email" className="w-full p-2.5 border border-slate-200 rounded-lg bg-slate-50 focus:bg-white transition-colors"
+                    <input type="email" required className="w-full p-2.5 border border-slate-200 rounded-lg bg-slate-50 focus:bg-white transition-colors"
                         value={editingUser.email}
                         onChange={e => setEditingUser({...editingUser, email: e.target.value})}
                     />
@@ -321,14 +423,30 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
                       <option value={Role.ADMIN}>Admin</option>
                     </select>
                   </div>
+                  
+                  {isCreating && (
+                      <div className="md:col-span-2">
+                          <label className="block text-sm font-semibold text-blue-700 mb-2 flex items-center gap-2">
+                              <Shield size={16}/> Contraseña de Acceso (Obligatoria)
+                          </label>
+                          <input 
+                              type="text" 
+                              required 
+                              placeholder="Definir contraseña inicial..."
+                              className="w-full p-2.5 border border-blue-200 rounded-lg bg-blue-50 focus:bg-white transition-colors"
+                              value={newPassword}
+                              onChange={e => setNewPassword(e.target.value)}
+                          />
+                      </div>
+                  )}
               </div>
 
               <hr className="border-slate-100" />
 
-              {/* Ajuste de Saldos */}
+              {/* Ajuste de Saldos (Visible tanto en creación para inicializar como en edición) */}
               <div>
                   <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
-                      <FileText size={18} className="text-orange-500"/> Gestión de Saldos
+                      <FileText size={18} className="text-orange-500"/> {isCreating ? 'Saldos Iniciales' : 'Gestión de Saldos'}
                   </h4>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       {/* DÍAS */}
@@ -337,22 +455,32 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
                               <span className="text-sm font-bold text-orange-800">Saldo Días Actual</span>
                               <span className="text-2xl font-bold text-orange-600">{editingUser.daysAvailable}</span>
                           </div>
-                          <div className="space-y-2">
-                              <div className="flex gap-2">
-                                  <input 
-                                    type="number" step="0.5" placeholder="0"
-                                    className="w-20 p-2 text-center rounded-lg border border-orange-200"
-                                    value={adjustmentDays}
-                                    onChange={e => setAdjustmentDays(parseFloat(e.target.value) || 0)}
-                                  />
-                                  <input 
-                                    type="text" placeholder="Motivo ajuste..."
-                                    className="flex-1 p-2 rounded-lg border border-orange-200 text-sm"
-                                    value={adjustmentReasonDays}
-                                    onChange={e => setAdjustmentReasonDays(e.target.value)}
-                                  />
+                          {!isCreating && (
+                              <div className="space-y-2">
+                                  <div className="flex gap-2">
+                                      <input 
+                                        type="number" step="0.5" placeholder="0"
+                                        className="w-20 p-2 text-center rounded-lg border border-orange-200"
+                                        value={adjustmentDays}
+                                        onChange={e => setAdjustmentDays(parseFloat(e.target.value) || 0)}
+                                      />
+                                      <input 
+                                        type="text" placeholder="Motivo ajuste..."
+                                        className="flex-1 p-2 rounded-lg border border-orange-200 text-sm"
+                                        value={adjustmentReasonDays}
+                                        onChange={e => setAdjustmentReasonDays(e.target.value)}
+                                      />
+                                  </div>
                               </div>
-                          </div>
+                          )}
+                          {isCreating && (
+                               <input 
+                                  type="number" step="0.5" 
+                                  className="w-full p-2 text-center rounded-lg border border-orange-200"
+                                  value={editingUser.daysAvailable}
+                                  onChange={e => setEditingUser({...editingUser, daysAvailable: parseFloat(e.target.value)})}
+                                />
+                          )}
                       </div>
                       {/* HORAS */}
                       <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
@@ -360,70 +488,82 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
                               <span className="text-sm font-bold text-blue-800">Saldo Horas Actual</span>
                               <span className="text-2xl font-bold text-blue-600">{editingUser.overtimeHours}h</span>
                           </div>
-                          <div className="space-y-2">
-                              <div className="flex gap-2">
-                                  <input 
-                                    type="number" step="0.5" placeholder="0"
-                                    className="w-20 p-2 text-center rounded-lg border border-blue-200"
-                                    value={adjustmentHours}
-                                    onChange={e => setAdjustmentHours(parseFloat(e.target.value) || 0)}
-                                  />
-                                  <input 
-                                    type="text" placeholder="Motivo ajuste..."
-                                    className="flex-1 p-2 rounded-lg border border-blue-200 text-sm"
-                                    value={adjustmentReasonHours}
-                                    onChange={e => setAdjustmentReasonHours(e.target.value)}
-                                  />
+                          {!isCreating && (
+                              <div className="space-y-2">
+                                  <div className="flex gap-2">
+                                      <input 
+                                        type="number" step="0.5" placeholder="0"
+                                        className="w-20 p-2 text-center rounded-lg border border-blue-200"
+                                        value={adjustmentHours}
+                                        onChange={e => setAdjustmentHours(parseFloat(e.target.value) || 0)}
+                                      />
+                                      <input 
+                                        type="text" placeholder="Motivo ajuste..."
+                                        className="flex-1 p-2 rounded-lg border border-blue-200 text-sm"
+                                        value={adjustmentReasonHours}
+                                        onChange={e => setAdjustmentReasonHours(e.target.value)}
+                                      />
+                                  </div>
                               </div>
-                          </div>
+                          )}
+                          {isCreating && (
+                               <input 
+                                  type="number" step="0.5" 
+                                  className="w-full p-2 text-center rounded-lg border border-blue-200"
+                                  value={editingUser.overtimeHours}
+                                  onChange={e => setEditingUser({...editingUser, overtimeHours: parseFloat(e.target.value)})}
+                                />
+                          )}
                       </div>
                   </div>
               </div>
 
-              {/* LISTA DE SOLICITUDES DEL USUARIO */}
-              <div>
-                  <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
-                      <Clock size={18} className="text-slate-500"/> Historial de Solicitudes
-                  </h4>
-                  <div className="bg-slate-50 rounded-xl border border-slate-200 overflow-hidden max-h-60 overflow-y-auto">
-                      <table className="w-full text-xs text-left">
-                          <thead className="bg-slate-100 text-slate-500 font-semibold">
-                              <tr>
-                                  <th className="px-4 py-2">Tipo</th>
-                                  <th className="px-4 py-2">Fecha</th>
-                                  <th className="px-4 py-2">Estado</th>
-                              </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-100">
-                              {editingUserRequests.length === 0 ? (
-                                  <tr><td colSpan={3} className="p-4 text-center text-slate-400">Sin historial</td></tr>
-                              ) : (
-                                  editingUserRequests.map(req => (
-                                      <tr key={req.id} className="hover:bg-slate-200 cursor-pointer" onClick={() => onViewRequest(req)}>
-                                          <td className="px-4 py-2 font-medium">{req.label}</td>
-                                          <td className="px-4 py-2">{new Date(req.startDate).toLocaleDateString()}</td>
-                                          <td className="px-4 py-2">
-                                              <span className={`px-2 py-0.5 rounded-full ${
-                                                  req.status === RequestStatus.APPROVED ? 'bg-green-100 text-green-700' : 
-                                                  req.status === RequestStatus.REJECTED ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'
-                                              }`}>{req.status}</span>
-                                          </td>
-                                      </tr>
-                                  ))
-                              )}
-                          </tbody>
-                      </table>
+              {/* LISTA DE SOLICITUDES DEL USUARIO (Solo si NO estamos creando) */}
+              {!isCreating && (
+                  <div>
+                      <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+                          <Clock size={18} className="text-slate-500"/> Historial de Solicitudes
+                      </h4>
+                      <div className="bg-slate-50 rounded-xl border border-slate-200 overflow-hidden max-h-60 overflow-y-auto">
+                          <table className="w-full text-xs text-left">
+                              <thead className="bg-slate-100 text-slate-500 font-semibold">
+                                  <tr>
+                                      <th className="px-4 py-2">Tipo</th>
+                                      <th className="px-4 py-2">Fecha</th>
+                                      <th className="px-4 py-2">Estado</th>
+                                  </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-100">
+                                  {editingUserRequests.length === 0 ? (
+                                      <tr><td colSpan={3} className="p-4 text-center text-slate-400">Sin historial</td></tr>
+                                  ) : (
+                                      editingUserRequests.map(req => (
+                                          <tr key={req.id} className="hover:bg-slate-200 cursor-pointer" onClick={() => onViewRequest(req)}>
+                                              <td className="px-4 py-2 font-medium">{req.label}</td>
+                                              <td className="px-4 py-2">{new Date(req.startDate).toLocaleDateString()}</td>
+                                              <td className="px-4 py-2">
+                                                  <span className={`px-2 py-0.5 rounded-full ${
+                                                      req.status === RequestStatus.APPROVED ? 'bg-green-100 text-green-700' : 
+                                                      req.status === RequestStatus.REJECTED ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'
+                                                  }`}>{req.status}</span>
+                                              </td>
+                                          </tr>
+                                      ))
+                                  )}
+                              </tbody>
+                          </table>
+                      </div>
                   </div>
-              </div>
+              )}
 
               <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
                 <button type="button" onClick={() => setEditingUser(null)} className="px-6 py-2.5 text-slate-600 hover:bg-slate-100 rounded-xl font-medium transition-colors">Cancelar</button>
                 <button 
                     type="submit" 
-                    disabled={(adjustmentDays !== 0 && !adjustmentReasonDays) || (adjustmentHours !== 0 && !adjustmentReasonHours)}
+                    disabled={(!isCreating && ((adjustmentDays !== 0 && !adjustmentReasonDays) || (adjustmentHours !== 0 && !adjustmentReasonHours)))}
                     className="px-6 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 shadow-lg shadow-blue-500/30 font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                    Guardar Cambios
+                    {isCreating ? 'Crear Usuario' : 'Guardar Cambios'}
                 </button>
               </div>
             </form>

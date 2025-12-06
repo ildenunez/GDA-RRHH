@@ -1,8 +1,9 @@
 
+
 import React from 'react';
 import { LeaveRequest, RequestStatus } from '../types';
 import { store } from '../services/store';
-import { X, Printer, Calendar, Clock, FileText, CheckCircle, XCircle, AlertCircle, User as UserIcon } from 'lucide-react';
+import { X, Printer, Calendar, Clock, FileText, CheckCircle, XCircle, AlertCircle, User as UserIcon, MessageSquare } from 'lucide-react';
 
 interface RequestDetailModalProps {
   request: LeaveRequest;
@@ -49,12 +50,12 @@ const RequestDetailModal: React.FC<RequestDetailModalProps> = ({ request, onClos
             {/* Header del Informe */}
             <div className="flex justify-between items-start mb-8 pb-6 border-b-2 border-slate-100">
                 <div className="flex items-center gap-4">
-                    <div className="w-16 h-16 bg-blue-600 text-white flex items-center justify-center rounded-xl font-bold text-2xl print:border print:border-black print:text-black print:bg-white">
-                        AF
+                    <div className="w-20 h-20 bg-white border border-slate-200 flex items-center justify-center rounded-xl p-2 print:border-none print:p-0">
+                         <img src="https://termosycalentadoresgranada.com/wp-content/uploads/2025/08/https___cdn.evbuc_.com_images_677236879_73808960223_1_original.png" alt="Logo" className="w-full h-full object-contain" />
                     </div>
                     <div>
                         <h1 className="text-2xl font-bold text-slate-900">Informe de Solicitud</h1>
-                        <p className="text-slate-500 text-sm">AbsenceFlow Management System</p>
+                        <p className="text-slate-500 text-sm">Portal de RRHH - GdA</p>
                         <p className="text-slate-400 text-xs mt-1">Ref: {request.id}</p>
                     </div>
                 </div>
@@ -116,8 +117,16 @@ const RequestDetailModal: React.FC<RequestDetailModalProps> = ({ request, onClos
 
                 {request.reason && (
                     <div className="mt-4 pt-4 border-t border-slate-200">
-                        <span className="flex items-center gap-2 text-sm text-slate-500 mb-1"><FileText size={14}/> Motivo / Comentario</span>
+                        <span className="flex items-center gap-2 text-sm text-slate-500 mb-1"><FileText size={14}/> Motivo / Comentario Empleado</span>
                         <p className="text-slate-700 italic">"{request.reason}"</p>
+                    </div>
+                )}
+
+                {/* Notas del Responsable */}
+                {request.adminComment && (
+                    <div className="mt-4 pt-4 border-t border-slate-200 bg-yellow-50 p-4 rounded-lg border border-yellow-100">
+                        <span className="flex items-center gap-2 text-sm font-bold text-yellow-700 mb-1"><MessageSquare size={14}/> Notas del Responsable</span>
+                        <p className="text-slate-700">"{request.adminComment}"</p>
                     </div>
                 )}
             </div>

@@ -1,10 +1,12 @@
 
+
 import React, { useState, useEffect } from 'react';
 import { store } from './services/store';
 import { User, Role, LeaveTypeConfig, Department, LeaveRequest, OvertimeUsage, EmailTemplate } from './types';
 import Dashboard from './components/Dashboard';
 import { Approvals, UserManagement } from './components/Management';
 import CalendarView from './components/CalendarView';
+import NotificationsView from './components/NotificationsView';
 import RequestDetailModal from './components/RequestDetailModal';
 import { 
   LayoutDashboard, 
@@ -27,10 +29,18 @@ import {
   Info,
   Mail,
   Save,
-  Loader2
+  Loader2,
+  Lock,
+  ArrowRight,
+  Send,
+  Server,
+  MessageSquare,
+  Search
 } from 'lucide-react';
 
-// --- Componente Login ---
+const LOGO_URL = "https://termosycalentadoresgranada.com/wp-content/uploads/2025/08/https___cdn.evbuc_.com_images_677236879_73808960223_1_original.png";
+
+// --- Componente Login WOW ---
 const Login = ({ onLogin }: { onLogin: (u: User) => void }) => {
   const [email, setEmail] = useState('');
   const [pass, setPass] = useState('');
@@ -43,7 +53,6 @@ const Login = ({ onLogin }: { onLogin: (u: User) => void }) => {
     setError('');
     
     try {
-        // Asegurar que el store está hidratado desde Supabase
         await store.init();
         const user = await store.login(email, pass);
         
@@ -60,42 +69,68 @@ const Login = ({ onLogin }: { onLogin: (u: User) => void }) => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-600 to-indigo-900 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md">
+    <div className="min-h-screen relative flex items-center justify-center overflow-hidden bg-slate-900">
+      {/* Background Image with Overlay */}
+      <div 
+        className="absolute inset-0 z-0 bg-cover bg-center opacity-40 transform scale-105"
+        style={{ backgroundImage: 'url("https://images.unsplash.com/photo-1497215728101-856f4ea42174?ixlib=rb-1.2.1&auto=format&fit=crop&w=1950&q=80")' }}
+      />
+      <div className="absolute inset-0 z-0 bg-gradient-to-tr from-blue-900/80 via-slate-900/80 to-purple-900/80 backdrop-blur-sm" />
+
+      {/* Login Card */}
+      <div className="relative z-10 w-full max-w-md p-8 m-4 bg-white/90 backdrop-blur-xl rounded-3xl shadow-2xl border border-white/20 animate-fade-in-up">
+        
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-slate-800">AbsenceFlow</h1>
-          <p className="text-slate-500">Gestión Profesional de Ausencias</p>
+          <div className="w-24 h-24 bg-white rounded-2xl shadow-lg mx-auto mb-6 flex items-center justify-center p-4 transform hover:scale-105 transition-transform duration-300">
+             <img src={LOGO_URL} alt="GdA RRHH" className="w-full h-full object-contain" />
+          </div>
+          <h1 className="text-3xl font-extrabold text-slate-800 tracking-tight">GdA <span className="text-blue-600">RRHH</span></h1>
+          <p className="text-slate-500 font-medium mt-2">Portal del Empleado</p>
         </div>
+
         <form onSubmit={handleSubmit} className="space-y-6">
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
-            <input 
-              type="email" 
-              required
-              className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-              placeholder="admin@empresa.com"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-            />
+          <div className="space-y-4">
+            <div className="relative group">
+               <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                  <UsersIcon className="h-5 w-5 text-slate-400 group-focus-within:text-blue-500 transition-colors" />
+               </div>
+               <input 
+                 type="email" 
+                 required
+                 className="block w-full pl-11 pr-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all shadow-sm"
+                 placeholder="Correo corporativo"
+                 value={email}
+                 onChange={e => setEmail(e.target.value)}
+               />
+            </div>
+            <div className="relative group">
+               <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                  <Lock className="h-5 w-5 text-slate-400 group-focus-within:text-blue-500 transition-colors" />
+               </div>
+               <input 
+                 type="password" 
+                 required
+                 className="block w-full pl-11 pr-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all shadow-sm"
+                 placeholder="Contraseña de acceso"
+                 value={pass}
+                 onChange={e => setPass(e.target.value)}
+               />
+            </div>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Contraseña</label>
-            <input 
-              type="password" 
-              required
-              className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-              placeholder="••••••••"
-              value={pass}
-              onChange={e => setPass(e.target.value)}
-            />
-          </div>
-          {error && <p className="text-red-500 text-sm text-center">{error}</p>}
-          <button type="submit" disabled={loading} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-0.5 flex justify-center items-center gap-2">
-            {loading ? <Loader2 className="animate-spin"/> : 'Iniciar Sesión'}
+
+          {error && (
+            <div className="p-3 rounded-lg bg-red-50 border border-red-100 flex items-center gap-2 text-red-600 text-sm animate-pulse">
+                <Info size={16}/> {error}
+            </div>
+          )}
+
+          <button type="submit" disabled={loading} className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold py-3.5 rounded-xl shadow-lg hover:shadow-blue-500/30 transition-all transform hover:-translate-y-0.5 active:scale-95 flex justify-center items-center gap-2">
+            {loading ? <Loader2 className="animate-spin"/> : <>Entrar al Portal <ArrowRight size={18}/></>}
           </button>
         </form>
-        <div className="mt-6 text-center text-xs text-slate-400 bg-slate-50 p-3 rounded-lg">
-           Demo: ilde (androideilde@gmail.com) / 8019
+
+        <div className="mt-8 pt-6 border-t border-slate-200 text-center">
+             <p className="text-xs text-slate-400 font-medium">© {new Date().getFullYear()} GdA RRHH Solutions</p>
         </div>
       </div>
     </div>
@@ -450,7 +485,17 @@ const AdminSettings = ({ onViewRequest }: { onViewRequest: (req: LeaveRequest) =
     const [isDeptModalOpen, setIsDeptModalOpen] = useState(false);
     const [editingDept, setEditingDept] = useState<Department | undefined>(undefined);
     const [subTab, setSubTab] = useState<'general' | 'absences' | 'users' | 'departments' | 'communications'>('users');
+    
+    // Communications Sub-Tabs
+    const [commTab, setCommTab] = useState<'templates' | 'smtp' | 'message'>('templates');
     const [selectedTemplate, setSelectedTemplate] = useState<EmailTemplate | null>(null);
+    const [smtpConfig, setSmtpConfig] = useState(store.config.smtpSettings);
+
+    // Mass Message State
+    const [massMessage, setMassMessage] = useState('');
+    const [targetAudience, setTargetAudience] = useState<'all' | 'selection'>('all');
+    const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
+    const [searchTerm, setSearchTerm] = useState('');
 
     useEffect(() => {
         if(config.emailTemplates.length > 0 && !selectedTemplate) {
@@ -485,6 +530,29 @@ const AdminSettings = ({ onViewRequest }: { onViewRequest: (req: LeaveRequest) =
         }
     };
 
+    const handleSaveSmtp = () => {
+        store.updateSmtpSettings(smtpConfig);
+        alert('Configuración SMTP actualizada');
+    };
+
+    const handleSendMassMessage = async () => {
+        if (!massMessage.trim()) return alert('Escribe un mensaje');
+        const recipients = targetAudience === 'all' ? store.users.map(u => u.id) : selectedUserIds;
+        if (recipients.length === 0) return alert('Selecciona al menos un destinatario');
+        
+        await store.sendMassNotification(recipients, massMessage);
+        alert(`Mensaje enviado a ${recipients.length} usuarios.`);
+        setMassMessage('');
+        setSelectedUserIds([]);
+    };
+
+    const toggleUserSelection = (id: string) => {
+        if (selectedUserIds.includes(id)) setSelectedUserIds(selectedUserIds.filter(uid => uid !== id));
+        else setSelectedUserIds([...selectedUserIds, id]);
+    };
+
+    const filteredUsers = store.users.filter(u => u.name.toLowerCase().includes(searchTerm.toLowerCase()));
+
     return (
         <div className="bg-white rounded-2xl shadow-sm border border-slate-100 min-h-[600px] flex flex-col">
             <div className="p-6 border-b border-slate-100 flex items-center gap-2">
@@ -513,22 +581,106 @@ const AdminSettings = ({ onViewRequest }: { onViewRequest: (req: LeaveRequest) =
                     </div>
                 )}
                 {subTab === 'communications' && (
-                    <div className="flex flex-col md:flex-row gap-6 h-full">
-                        <div className="w-full md:w-1/3 border-r border-slate-100 pr-4 space-y-2">
-                            <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2"><Mail size={18}/> Plantillas de Email</h3>
-                            {config.emailTemplates.map(tpl => (
-                                <button key={tpl.id} onClick={() => setSelectedTemplate({...tpl})} className={`w-full text-left p-3 rounded-lg text-sm transition-all ${selectedTemplate?.id === tpl.id ? 'bg-blue-50 text-blue-700 border border-blue-100 font-medium' : 'hover:bg-slate-50 text-slate-600'}`}>{tpl.label}</button>
-                            ))}
+                    <div className="flex flex-col md:flex-row gap-6 h-full min-h-[500px]">
+                        {/* Sidebar */}
+                        <div className="w-full md:w-64 border-r border-slate-100 pr-4 space-y-2">
+                             <h3 className="font-bold text-slate-700 mb-4 px-2">Configuración</h3>
+                             <button onClick={() => setCommTab('templates')} className={`w-full text-left p-3 rounded-lg text-sm flex items-center gap-2 ${commTab === 'templates' ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>
+                                 <Mail size={16}/> Plantillas Email
+                             </button>
+                             <button onClick={() => setCommTab('smtp')} className={`w-full text-left p-3 rounded-lg text-sm flex items-center gap-2 ${commTab === 'smtp' ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>
+                                 <Server size={16}/> Servidor SMTP
+                             </button>
+                             <button onClick={() => setCommTab('message')} className={`w-full text-left p-3 rounded-lg text-sm flex items-center gap-2 ${commTab === 'message' ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>
+                                 <Send size={16}/> Enviar Mensaje
+                             </button>
                         </div>
-                        <div className="w-full md:w-2/3 pl-2">
-                             {selectedTemplate ? (
-                                 <div className="space-y-4 animate-fade-in">
-                                     <div className="flex justify-between items-center pb-2 border-b border-slate-100"><h4 className="font-bold text-slate-800">{selectedTemplate.label}</h4><button onClick={handleSaveTemplate} className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 transition-colors"><Save size={16}/> Guardar</button></div>
-                                     <div><label className="block text-sm font-semibold text-slate-700 mb-1">Asunto</label><input type="text" className="w-full p-2 border border-slate-200 rounded-lg" value={selectedTemplate.subject} onChange={e => setSelectedTemplate({...selectedTemplate, subject: e.target.value})}/></div>
-                                     <div><label className="block text-sm font-semibold text-slate-700 mb-1">Cuerpo del Mensaje</label><textarea className="w-full p-2 border border-slate-200 rounded-lg h-40 font-mono text-sm" value={selectedTemplate.body} onChange={e => setSelectedTemplate({...selectedTemplate, body: e.target.value})}/><p className="text-xs text-slate-400 mt-1 flex items-center gap-1"><Info size={12}/> Variables disponibles: {'{nombre}, {tipo}, {fechas}, {empleado}'}</p></div>
-                                     <div className="bg-slate-50 p-4 rounded-xl border border-slate-200"><h5 className="text-sm font-bold text-slate-700 mb-3">Destinatarios Automáticos</h5><div className="flex gap-6"><label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" className="w-4 h-4 text-blue-600 rounded" checked={selectedTemplate.recipients.worker} onChange={e => setSelectedTemplate({...selectedTemplate, recipients: {...selectedTemplate.recipients, worker: e.target.checked}})}/><span className="text-sm text-slate-600">Empleado</span></label><label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" className="w-4 h-4 text-blue-600 rounded" checked={selectedTemplate.recipients.supervisor} onChange={e => setSelectedTemplate({...selectedTemplate, recipients: {...selectedTemplate.recipients, supervisor: e.target.checked}})}/><span className="text-sm text-slate-600">Supervisor(es)</span></label><label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" className="w-4 h-4 text-blue-600 rounded" checked={selectedTemplate.recipients.admin} onChange={e => setSelectedTemplate({...selectedTemplate, recipients: {...selectedTemplate.recipients, admin: e.target.checked}})}/><span className="text-sm text-slate-600">Admin</span></label></div></div>
-                                 </div>
-                             ) : <div className="h-full flex items-center justify-center text-slate-400">Selecciona una plantilla para editar</div>}
+
+                        {/* Content Area */}
+                        <div className="flex-1 pl-2">
+                            {/* PLANTILLAS */}
+                            {commTab === 'templates' && (
+                                <div className="flex gap-4 h-full">
+                                    <div className="w-1/3 border-r pr-2 space-y-1 overflow-y-auto max-h-[500px]">
+                                        {config.emailTemplates.map(tpl => (
+                                            <button key={tpl.id} onClick={() => setSelectedTemplate({...tpl})} className={`w-full text-left p-2 rounded text-xs transition-colors ${selectedTemplate?.id === tpl.id ? 'bg-blue-100 text-blue-800' : 'hover:bg-slate-50'}`}>{tpl.label}</button>
+                                        ))}
+                                    </div>
+                                    <div className="w-2/3">
+                                        {selectedTemplate ? (
+                                            <div className="space-y-3">
+                                                <div className="flex justify-between"><h4 className="font-bold">{selectedTemplate.label}</h4><button onClick={handleSaveTemplate} className="bg-blue-600 text-white px-3 py-1 rounded text-xs flex items-center gap-1"><Save size={12}/> Guardar</button></div>
+                                                <input className="w-full p-2 border rounded text-sm" value={selectedTemplate.subject} onChange={e => setSelectedTemplate({...selectedTemplate, subject: e.target.value})} placeholder="Asunto"/>
+                                                <textarea className="w-full p-2 border rounded text-sm h-40 font-mono" value={selectedTemplate.body} onChange={e => setSelectedTemplate({...selectedTemplate, body: e.target.value})} placeholder="Cuerpo"/>
+                                                <div className="bg-slate-50 p-3 rounded border flex gap-4 text-xs">
+                                                    <label className="flex gap-1"><input type="checkbox" checked={selectedTemplate.recipients.worker} onChange={e => setSelectedTemplate({...selectedTemplate, recipients: {...selectedTemplate.recipients, worker: e.target.checked}})}/> Empleado</label>
+                                                    <label className="flex gap-1"><input type="checkbox" checked={selectedTemplate.recipients.supervisor} onChange={e => setSelectedTemplate({...selectedTemplate, recipients: {...selectedTemplate.recipients, supervisor: e.target.checked}})}/> Supervisor</label>
+                                                    <label className="flex gap-1"><input type="checkbox" checked={selectedTemplate.recipients.admin} onChange={e => setSelectedTemplate({...selectedTemplate, recipients: {...selectedTemplate.recipients, admin: e.target.checked}})}/> Admin</label>
+                                                </div>
+                                            </div>
+                                        ) : <p>Selecciona una plantilla</p>}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* SMTP CONFIG */}
+                            {commTab === 'smtp' && (
+                                <div className="max-w-md space-y-4">
+                                    <h3 className="font-bold text-lg mb-4">Configuración del Servidor de Correo</h3>
+                                    <div><label className="text-sm font-semibold">Host SMTP</label><input type="text" className="w-full p-2 border rounded" value={smtpConfig.host} onChange={e => setSmtpConfig({...smtpConfig, host: e.target.value})} placeholder="smtp.gmail.com"/></div>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div><label className="text-sm font-semibold">Puerto</label><input type="number" className="w-full p-2 border rounded" value={smtpConfig.port} onChange={e => setSmtpConfig({...smtpConfig, port: parseInt(e.target.value)})}/></div>
+                                        <div className="flex items-end pb-2"><label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" className="w-4 h-4" checked={smtpConfig.enabled} onChange={e => setSmtpConfig({...smtpConfig, enabled: e.target.checked})}/> Habilitar Envío</label></div>
+                                    </div>
+                                    <div><label className="text-sm font-semibold">Usuario</label><input type="text" className="w-full p-2 border rounded" value={smtpConfig.user} onChange={e => setSmtpConfig({...smtpConfig, user: e.target.value})}/></div>
+                                    <div><label className="text-sm font-semibold">Contraseña</label><input type="password" className="w-full p-2 border rounded" value={smtpConfig.password || ''} onChange={e => setSmtpConfig({...smtpConfig, password: e.target.value})}/></div>
+                                    <button onClick={handleSaveSmtp} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold w-full mt-4 hover:bg-blue-700">Guardar Configuración</button>
+                                </div>
+                            )}
+
+                            {/* ENVIAR MENSAJE */}
+                            {commTab === 'message' && (
+                                <div className="space-y-4 max-w-xl">
+                                    <h3 className="font-bold text-lg flex items-center gap-2"><MessageSquare size={20}/> Enviar Notificación Masiva</h3>
+                                    
+                                    <div>
+                                        <label className="block text-sm font-semibold mb-2">Mensaje</label>
+                                        <textarea className="w-full p-3 border rounded-xl h-24" placeholder="Escribe tu mensaje aquí..." value={massMessage} onChange={e => setMassMessage(e.target.value)} />
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-semibold mb-2">Destinatarios</label>
+                                        <div className="flex gap-4 mb-4">
+                                            <button onClick={() => setTargetAudience('all')} className={`flex-1 py-2 rounded-lg border text-sm font-medium ${targetAudience === 'all' ? 'bg-blue-50 border-blue-500 text-blue-700' : 'border-slate-200'}`}>Todos los Usuarios</button>
+                                            <button onClick={() => setTargetAudience('selection')} className={`flex-1 py-2 rounded-lg border text-sm font-medium ${targetAudience === 'selection' ? 'bg-blue-50 border-blue-500 text-blue-700' : 'border-slate-200'}`}>Seleccionar Usuarios</button>
+                                        </div>
+
+                                        {targetAudience === 'selection' && (
+                                            <div className="border border-slate-200 rounded-xl overflow-hidden">
+                                                <div className="p-2 border-b bg-slate-50 flex items-center gap-2">
+                                                    <Search size={16} className="text-slate-400"/>
+                                                    <input className="bg-transparent text-sm w-full outline-none" placeholder="Buscar usuario..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)}/>
+                                                </div>
+                                                <div className="max-h-48 overflow-y-auto p-2 space-y-1">
+                                                    {filteredUsers.map(u => (
+                                                        <label key={u.id} className="flex items-center gap-3 p-2 hover:bg-slate-50 rounded cursor-pointer">
+                                                            <input type="checkbox" checked={selectedUserIds.includes(u.id)} onChange={() => toggleUserSelection(u.id)} className="rounded text-blue-600"/>
+                                                            <span className="text-sm">{u.name}</span>
+                                                        </label>
+                                                    ))}
+                                                </div>
+                                                <div className="p-2 bg-slate-50 text-xs text-slate-500 text-right">
+                                                    {selectedUserIds.length} seleccionados
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <button onClick={handleSendMassMessage} className="w-full bg-slate-900 text-white py-3 rounded-xl font-bold hover:bg-slate-800 flex justify-center items-center gap-2">
+                                        <Send size={18}/> Enviar Notificación
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}
@@ -559,6 +711,7 @@ export default function App() {
   const isSupervisor = user.role === Role.SUPERVISOR || user.role === Role.ADMIN;
   const isAdmin = user.role === Role.ADMIN;
   const pendingCount = isSupervisor ? store.getPendingApprovalsForUser(user.id).length : 0;
+  const unreadNotificationsCount = store.getNotificationsForUser(user.id).filter(n => !n.read).length;
 
   const handleViewRequest = (req: LeaveRequest) => {
       setViewingRequest(req);
@@ -588,17 +741,18 @@ export default function App() {
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden font-sans">
       <aside className={`fixed inset-y-0 left-0 z-40 w-64 bg-slate-900 text-white transform transition-transform duration-300 ease-in-out ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0`}>
-        <div className="p-6 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center font-bold text-xl">A</div>
-            <span className="text-xl font-bold tracking-tight">AbsenceFlow</span>
-          </div>
-          <button onClick={() => setMobileMenuOpen(false)} className="md:hidden text-slate-400"><X/></button>
+        <div className="p-6 flex flex-col items-center justify-center border-b border-slate-800 mb-2">
+            <div className="w-20 h-20 bg-white rounded-xl shadow-lg p-2 mb-3 flex items-center justify-center">
+                 <img src={LOGO_URL} alt="Logo" className="w-full h-full object-contain" />
+            </div>
+            <h1 className="text-xl font-extrabold tracking-tight text-white text-center">GdA <span className="text-blue-500">RRHH</span></h1>
+            <button onClick={() => setMobileMenuOpen(false)} className="md:hidden absolute top-4 right-4 text-slate-400"><X/></button>
         </div>
 
-        <nav className="px-4 space-y-2 mt-4">
-          <NavItem id="dashboard" icon={LayoutDashboard} label="Panel" />
+        <nav className="px-4 space-y-2 mt-4 overflow-y-auto max-h-[calc(100vh-250px)]">
+          <NavItem id="dashboard" icon={LayoutDashboard} label="Dashboard" />
           <NavItem id="calendar" icon={CalendarDays} label="Calendario" />
+          <NavItem id="notifications" icon={Bell} label="Notificaciones" badgeCount={unreadNotificationsCount} />
           {(isSupervisor) && (
             <>
               <div className="pt-4 pb-2 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Gestión</div>
@@ -614,7 +768,7 @@ export default function App() {
           )}
         </nav>
 
-        <div className="absolute bottom-0 w-full p-4 border-t border-slate-800">
+        <div className="absolute bottom-0 w-full p-4 border-t border-slate-800 bg-slate-900">
           <div className="flex items-center gap-3 mb-4 px-2">
             <img src={user.avatar} className="w-10 h-10 rounded-full border-2 border-slate-700 bg-slate-600" alt="User" />
             <div className="flex-1 min-w-0">
@@ -641,6 +795,7 @@ export default function App() {
         <div className="flex-1 overflow-auto p-4 md:p-8 relative">
            {activeTab === 'dashboard' && <Dashboard user={user} onNewRequest={(type) => {setModalInitialTab(type); setEditingRequest(null); setShowRequestModal(true);}} onEditRequest={(req) => { setEditingRequest(req); setShowRequestModal(true); }} onViewRequest={handleViewRequest} />}
            {activeTab === 'calendar' && <CalendarView user={user} />}
+           {activeTab === 'notifications' && <NotificationsView user={user} />}
            {activeTab === 'approvals' && isSupervisor && <Approvals user={user} onViewRequest={handleViewRequest} />}
            {activeTab === 'team' && isSupervisor && <UserManagement currentUser={user} onViewRequest={handleViewRequest} />}
            {activeTab === 'settings' && isAdmin && <AdminSettings onViewRequest={handleViewRequest} />}

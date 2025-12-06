@@ -63,6 +63,7 @@ export interface LeaveRequest {
   reason?: string;
   status: RequestStatus;
   createdAt: string;
+  adminComment?: string; // Comentario del supervisor al aprobar/rechazar
   
   // Trazabilidad de Horas
   isConsumed?: boolean; // Si true, este registro está AGOTADO totalmente
@@ -100,6 +101,7 @@ export interface AppConfig {
     host: string;
     port: number;
     user: string;
+    password?: string;
     enabled: boolean;
   };
 }

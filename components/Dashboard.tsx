@@ -1,4 +1,5 @@
 
+
 import React, { useState } from 'react';
 import { User, RequestStatus, LeaveRequest } from '../types';
 import { store } from '../services/store';
@@ -53,12 +54,33 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNewRequest, onEditRequest
     },
   ];
 
+  // Calcular horas extra reales por mes del año actual
+  const currentYear = new Date().getFullYear();
+  const monthlyOvertime = Array(12).fill(0);
+
+  requests.forEach(req => {
+      // Solo contar horas GENERADAS (earn) y APROBADAS
+      if (req.typeId === 'overtime_earn' && req.status === RequestStatus.APPROVED) {
+          const d = new Date(req.startDate);
+          if (d.getFullYear() === currentYear) {
+              monthlyOvertime[d.getMonth()] += (req.hours || 0);
+          }
+      }
+  });
+
   const chartData = [
-    { name: 'Ene', hours: 2 },
-    { name: 'Feb', hours: 5 },
-    { name: 'Mar', hours: 0 },
-    { name: 'Abr', hours: 3 },
-    { name: 'May', hours: 8 },
+    { name: 'Ene', hours: monthlyOvertime[0] },
+    { name: 'Feb', hours: monthlyOvertime[1] },
+    { name: 'Mar', hours: monthlyOvertime[2] },
+    { name: 'Abr', hours: monthlyOvertime[3] },
+    { name: 'May', hours: monthlyOvertime[4] },
+    { name: 'Jun', hours: monthlyOvertime[5] },
+    { name: 'Jul', hours: monthlyOvertime[6] },
+    { name: 'Ago', hours: monthlyOvertime[7] },
+    { name: 'Sep', hours: monthlyOvertime[8] },
+    { name: 'Oct', hours: monthlyOvertime[9] },
+    { name: 'Nov', hours: monthlyOvertime[10] },
+    { name: 'Dic', hours: monthlyOvertime[11] },
   ];
 
   // VISTA DE DETALLE (DRILL DOWN)
@@ -264,7 +286,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNewRequest, onEditRequest
 
         {/* Gráfica Horas Extra */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-          <h3 className="text-lg font-bold text-slate-800 mb-4">Evolución Horas Extra (Año actual)</h3>
+          <h3 className="text-lg font-bold text-slate-800 mb-4">Gráfica Horas extras realizadas</h3>
           <div className="h-48 w-full">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={chartData}>
