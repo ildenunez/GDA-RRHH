@@ -1,8 +1,10 @@
 
 
+
+
 import React, { useState, useEffect } from 'react';
 import { store } from './services/store';
-import { User, Role, LeaveTypeConfig, Department, LeaveRequest, OvertimeUsage, EmailTemplate } from './types';
+import { User, Role, LeaveTypeConfig, Department, LeaveRequest, OvertimeUsage, EmailTemplate, ShiftType, ShiftSegment } from './types';
 import Dashboard from './components/Dashboard';
 import { Approvals, UserManagement } from './components/Management';
 import CalendarView from './components/CalendarView';
@@ -488,6 +490,13 @@ const AdminSettings = ({ onViewRequest }: { onViewRequest: (req: LeaveRequest) =
     const [editingDept, setEditingDept] = useState<Department | undefined>(undefined);
     const [subTab, setSubTab] = useState<'general' | 'absences' | 'users' | 'departments' | 'communications'>('users');
     
+    // Shifts State
+    const [newShift, setNewShift] = useState<Partial<ShiftType>>({ name: '', color: '#3b82f6', segments: [{start: '09:00', end: '14:00'}] });
+    const [editingShiftId, setEditingShiftId] = useState<string | null>(null);
+
+    // Holidays State
+    const [newHoliday, setNewHoliday] = useState({ date: '', name: '' });
+
     // Communications Sub-Tabs
     const [commTab, setCommTab] = useState<'templates' | 'smtp' | 'message'>('templates');
     const [selectedTemplate, setSelectedTemplate] = useState<EmailTemplate | null>(null);
@@ -553,6 +562,68 @@ const AdminSettings = ({ onViewRequest }: { onViewRequest: (req: LeaveRequest) =
         else setSelectedUserIds([...selectedUserIds, id]);
     };
 
+    // --- SHIFTS HANDLERS ---
+    const handleAddShiftSegment = () => {
+        setNewShift({ ...newShift, segments: [...(newShift.segments || []), { start: '', end: '' }] });
+    };
+
+    const handleUpdateShiftSegment = (idx: number, field: keyof ShiftSegment, val: string) => {
+        const segments = [...(newShift.segments || [])];
+        segments[idx] = { ...segments[idx], [field]: val };
+        setNewShift({ ...newShift, segments });
+    };
+
+    const handleRemoveShiftSegment = (idx: number) => {
+        const segments = [...(newShift.segments || [])];
+        segments.splice(idx, 1);
+        setNewShift({ ...newShift, segments });
+    };
+
+    const handleSaveShift = async () => {
+        if (!newShift.name) return;
+        const shiftData: ShiftType = {
+            id: editingShiftId || newShift.name.toLowerCase().replace(/\s+/g, '_') + '_' + Date.now(),
+            name: newShift.name,
+            color: newShift.color || '#3b82f6',
+            segments: newShift.segments?.filter(s => s.start && s.end) || []
+        };
+        
+        if (editingShiftId) await store.updateShiftType(shiftData);
+        else await store.addShiftType(shiftData);
+
+        setConfig({...store.config});
+        setNewShift({ name: '', color: '#3b82f6', segments: [{start: '09:00', end: '14:00'}] });
+        setEditingShiftId(null);
+    };
+
+    const handleDeleteShift = async (id: string) => {
+        if (confirm('¿Borrar tipo de turno?')) {
+            await store.deleteShiftType(id);
+            setConfig({...store.config});
+        }
+    };
+
+    const handleEditShift = (shift: ShiftType) => {
+        setNewShift({ ...shift });
+        setEditingShiftId(shift.id);
+    };
+
+    // --- HOLIDAYS HANDLERS ---
+    const handleAddHoliday = async () => {
+        if (!newHoliday.date || !newHoliday.name) return;
+        await store.addHoliday(newHoliday.date, newHoliday.name);
+        setConfig({...store.config});
+        setNewHoliday({ date: '', name: '' });
+    };
+
+    const handleDeleteHoliday = async (id: string) => {
+        if (confirm('¿Borrar festivo?')) {
+            await store.deleteHoliday(id);
+            setConfig({...store.config});
+        }
+    };
+
+
     const filteredUsers = store.users.filter(u => u.name.toLowerCase().includes(searchTerm.toLowerCase()));
 
     return (
@@ -563,7 +634,7 @@ const AdminSettings = ({ onViewRequest }: { onViewRequest: (req: LeaveRequest) =
             <div className="flex border-b border-slate-100 overflow-x-auto">
                 {['users', 'departments', 'absences', 'communications'].map(tab => (
                     <button key={tab} onClick={() => setSubTab(tab as any)} className={`px-6 py-3 text-sm font-medium border-b-2 capitalize transition-colors whitespace-nowrap ${subTab === tab ? 'border-blue-500 text-blue-600' : 'border-transparent text-slate-500'}`}>
-                        {tab === 'users' ? 'Usuarios' : tab === 'departments' ? 'Departamentos' : tab === 'absences' ? 'Tipos Ausencia' : 'Comunicaciones'}
+                        {tab === 'users' ? 'Usuarios' : tab === 'departments' ? 'Departamentos' : tab === 'absences' ? 'Configuración RRHH' : 'Comunicaciones'}
                     </button>
                 ))}
             </div>
@@ -577,9 +648,87 @@ const AdminSettings = ({ onViewRequest }: { onViewRequest: (req: LeaveRequest) =
                     </div>
                 )}
                 {subTab === 'absences' && (
-                    <div className="space-y-8">
-                        <div className="grid gap-4">{config.leaveTypes.map(type => (<div key={type.id} className="flex justify-between p-4 border rounded-lg bg-slate-50"><div><p className="font-bold">{type.label}</p><span className="text-xs text-slate-500">{type.subtractsDays ? 'Resta Días' : 'No Resta'}</span></div><div className="flex gap-2"><button onClick={() => handleEditType(type)} className="text-blue-500"><Edit2 size={18}/></button><button onClick={() => handleDeleteType(type.id)} className="text-red-400"><Trash size={18}/></button></div></div>))}</div>
-                        <div className="bg-slate-50 p-6 rounded-xl border"><h3 className="font-bold mb-4">{editingTypeId ? 'Editar' : 'Crear'} Tipo</h3><div className="grid md:grid-cols-2 gap-4 mb-4"><div><label className="text-sm">Nombre</label><input className="w-full p-2 border rounded" value={newType.label} onChange={e => setNewType({...newType, label: e.target.value})}/></div><div className="flex items-center pt-6"><label className="flex gap-2"><input type="checkbox" checked={newType.subtractsDays} onChange={e => setNewType({...newType, subtractsDays: e.target.checked})}/> Resta días</label></div></div><label className="flex gap-2 mb-2"><input type="checkbox" checked={showRangeInputs} onChange={e => setShowRangeInputs(e.target.checked)}/> Fechas Fijas</label>{showRangeInputs && <div className="grid grid-cols-2 gap-4 mb-4"><input type="date" className="p-2 border rounded" value={newType.fixedRange?.startDate || ''} onChange={e => setNewType({...newType, fixedRange: {...(newType.fixedRange || {}), startDate: e.target.value} as any})}/><input type="date" className="p-2 border rounded" value={newType.fixedRange?.endDate || ''} onChange={e => setNewType({...newType, fixedRange: {...(newType.fixedRange || {}), endDate: e.target.value} as any})}/></div>}<button onClick={handleSaveType} className="bg-slate-900 text-white px-4 py-2 rounded-lg text-sm">{editingTypeId ? 'Actualizar' : 'Añadir'}</button></div>
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                        {/* TIPOS DE AUSENCIA */}
+                        <div className="space-y-6">
+                            <h3 className="font-bold text-lg text-slate-700 border-b pb-2">Tipos de Ausencia</h3>
+                            <div className="grid gap-4">{config.leaveTypes.map(type => (<div key={type.id} className="flex justify-between p-4 border rounded-lg bg-slate-50"><div><p className="font-bold">{type.label}</p><span className="text-xs text-slate-500">{type.subtractsDays ? 'Resta Días' : 'No Resta'}</span></div><div className="flex gap-2"><button onClick={() => handleEditType(type)} className="text-blue-500"><Edit2 size={18}/></button><button onClick={() => handleDeleteType(type.id)} className="text-red-400"><Trash size={18}/></button></div></div>))}</div>
+                            <div className="bg-slate-50 p-6 rounded-xl border"><h4 className="font-bold mb-4 text-sm uppercase">{editingTypeId ? 'Editar' : 'Crear'} Tipo</h4><div className="grid md:grid-cols-2 gap-4 mb-4"><div><label className="text-sm">Nombre</label><input className="w-full p-2 border rounded" value={newType.label} onChange={e => setNewType({...newType, label: e.target.value})}/></div><div className="flex items-center pt-6"><label className="flex gap-2"><input type="checkbox" checked={newType.subtractsDays} onChange={e => setNewType({...newType, subtractsDays: e.target.checked})}/> Resta días</label></div></div><label className="flex gap-2 mb-2"><input type="checkbox" checked={showRangeInputs} onChange={e => setShowRangeInputs(e.target.checked)}/> Fechas Fijas</label>{showRangeInputs && <div className="grid grid-cols-2 gap-4 mb-4"><input type="date" className="p-2 border rounded" value={newType.fixedRange?.startDate || ''} onChange={e => setNewType({...newType, fixedRange: {...(newType.fixedRange || {}), startDate: e.target.value} as any})}/><input type="date" className="p-2 border rounded" value={newType.fixedRange?.endDate || ''} onChange={e => setNewType({...newType, fixedRange: {...(newType.fixedRange || {}), endDate: e.target.value} as any})}/></div>}<button onClick={handleSaveType} className="bg-slate-900 text-white px-4 py-2 rounded-lg text-sm">{editingTypeId ? 'Actualizar' : 'Añadir'}</button></div>
+                        </div>
+
+                        {/* TIPOS DE TURNOS */}
+                        <div className="space-y-6">
+                            <h3 className="font-bold text-lg text-slate-700 border-b pb-2">Tipos de Turno</h3>
+                             <div className="grid gap-4">{config.shiftTypes.map(type => (
+                                 <div key={type.id} className="flex justify-between p-4 border rounded-lg bg-slate-50 border-l-4" style={{borderLeftColor: type.color}}>
+                                     <div>
+                                         <p className="font-bold">{type.name}</p>
+                                         <p className="text-xs text-slate-500">
+                                             {type.segments.map(s => `${s.start}-${s.end}`).join(' / ')}
+                                         </p>
+                                     </div>
+                                     <div className="flex gap-2"><button onClick={() => handleEditShift(type)} className="text-blue-500"><Edit2 size={18}/></button><button onClick={() => handleDeleteShift(type.id)} className="text-red-400"><Trash size={18}/></button></div>
+                                 </div>
+                             ))}</div>
+                             <div className="bg-slate-50 p-6 rounded-xl border">
+                                 <h4 className="font-bold mb-4 text-sm uppercase">{editingShiftId ? 'Editar' : 'Crear'} Turno</h4>
+                                 <div className="space-y-3">
+                                     <div className="flex gap-2">
+                                         <div className="flex-1">
+                                             <label className="text-xs font-bold text-slate-500">Nombre</label>
+                                             <input className="w-full p-2 border rounded" value={newShift.name} onChange={e => setNewShift({...newShift, name: e.target.value})}/>
+                                         </div>
+                                         <div className="w-16">
+                                              <label className="text-xs font-bold text-slate-500">Color</label>
+                                              <input type="color" className="w-full h-10 p-1 border rounded" value={newShift.color} onChange={e => setNewShift({...newShift, color: e.target.value})}/>
+                                         </div>
+                                     </div>
+                                     <div>
+                                         <label className="text-xs font-bold text-slate-500 block mb-2">Franjas Horarias</label>
+                                         {newShift.segments?.map((seg, i) => (
+                                             <div key={i} className="flex gap-2 mb-2 items-center">
+                                                 <input type="time" className="p-1 border rounded text-sm" value={seg.start} onChange={e => handleUpdateShiftSegment(i, 'start', e.target.value)} />
+                                                 <span>-</span>
+                                                 <input type="time" className="p-1 border rounded text-sm" value={seg.end} onChange={e => handleUpdateShiftSegment(i, 'end', e.target.value)} />
+                                                 {i > 0 && <button onClick={() => handleRemoveShiftSegment(i)} className="text-red-500"><X size={16}/></button>}
+                                             </div>
+                                         ))}
+                                         <button onClick={handleAddShiftSegment} className="text-xs text-blue-600 font-bold hover:underline">+ Añadir Franja</button>
+                                     </div>
+                                     <button onClick={handleSaveShift} className="bg-slate-900 text-white px-4 py-2 rounded-lg text-sm w-full">{editingShiftId ? 'Actualizar Turno' : 'Guardar Turno'}</button>
+                                 </div>
+                             </div>
+                        </div>
+
+                         {/* DÍAS FESTIVOS */}
+                         <div className="space-y-6">
+                            <h3 className="font-bold text-lg text-slate-700 border-b pb-2">Días Festivos</h3>
+                            <div className="max-h-60 overflow-y-auto space-y-2 border border-slate-200 rounded-lg p-2 bg-slate-50">
+                                {config.holidays.length === 0 ? <p className="text-sm text-slate-400 text-center italic">No hay festivos</p> : config.holidays.map(h => (
+                                    <div key={h.id} className="flex justify-between items-center bg-white p-2 rounded shadow-sm border border-slate-100">
+                                        <div>
+                                            <div className="font-bold text-sm">{new Date(h.date).toLocaleDateString()}</div>
+                                            <div className="text-xs text-red-500">{h.name}</div>
+                                        </div>
+                                        <button onClick={() => handleDeleteHoliday(h.id)} className="text-slate-400 hover:text-red-500 p-1"><Trash size={16}/></button>
+                                    </div>
+                                ))}
+                            </div>
+                            <div className="bg-slate-50 p-6 rounded-xl border">
+                                <h4 className="font-bold mb-4 text-sm uppercase">Añadir Festivo</h4>
+                                <div className="space-y-3">
+                                    <div>
+                                        <label className="text-xs font-bold text-slate-500">Fecha</label>
+                                        <input type="date" className="w-full p-2 border rounded text-sm" value={newHoliday.date} onChange={e => setNewHoliday({...newHoliday, date: e.target.value})}/>
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-bold text-slate-500">Nombre Festividad</label>
+                                        <input type="text" className="w-full p-2 border rounded text-sm" placeholder="Ej: Navidad" value={newHoliday.name} onChange={e => setNewHoliday({...newHoliday, name: e.target.value})}/>
+                                    </div>
+                                    <button onClick={handleAddHoliday} className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm w-full font-bold">Añadir Festivo</button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 )}
                 {subTab === 'communications' && (

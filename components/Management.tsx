@@ -3,7 +3,8 @@
 import React, { useState, useMemo } from 'react';
 import { User, RequestStatus, Role, LeaveRequest } from '../types';
 import { store } from '../services/store';
-import { Check, X, Users, Edit2, Shield, Trash2, AlertTriangle, Briefcase, FileText, Activity, Clock, CalendarDays, ExternalLink, UserPlus, MessageSquare, PieChart, TrendingUp, Calendar, Filter } from 'lucide-react';
+import ShiftScheduler from './ShiftScheduler';
+import { Check, X, Users, Edit2, Shield, Trash2, AlertTriangle, Briefcase, FileText, Activity, Clock, CalendarDays, ExternalLink, UserPlus, MessageSquare, PieChart, TrendingUp, Calendar, Filter, Paintbrush } from 'lucide-react';
 
 export const Approvals: React.FC<{ user: User, onViewRequest: (req: LeaveRequest) => void }> = ({ user, onViewRequest }) => {
   const [pending, setPending] = useState(store.getPendingApprovalsForUser(user.id));
@@ -141,6 +142,7 @@ export const Approvals: React.FC<{ user: User, onViewRequest: (req: LeaveRequest
 };
 
 export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: LeaveRequest) => void }> = ({ currentUser, onViewRequest }) => {
+  const [viewTab, setViewTab] = useState<'list' | 'planning'>('list');
   const [users, setUsers] = useState(store.getAllUsers());
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [filterDeptId, setFilterDeptId] = useState<string>('');
@@ -177,11 +179,9 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
       const today = new Date().toISOString().split('T')[0];
       const totalMembers = displayUsers.length;
       
-      // 1. Total Pendientes
       const totalPendingDays = displayUsers.reduce((sum, u) => sum + u.daysAvailable, 0);
       const totalPendingHours = displayUsers.reduce((sum, u) => sum + u.overtimeHours, 0);
 
-      // 2. % Ausencia Hoy
       const absentMembers = displayUsers.filter(u => {
           return store.requests.some(r => 
               r.userId === u.id && 
@@ -193,7 +193,6 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
       });
       const absentPercentage = totalMembers > 0 ? (absentMembers.length / totalMembers) * 100 : 0;
 
-      // 3. Próximas Ausencias (Próximos 7 días)
       const upcomingAbsences = store.requests.filter(r => {
           const userInTeam = displayUsers.find(u => u.id === r.userId);
           const startDate = r.startDate.split('T')[0];
@@ -206,11 +205,9 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
       return { totalPendingDays, totalPendingHours, absentPercentage, upcomingAbsences };
   }, [displayUsers]);
 
-  // Solicitudes del equipo (para mostrar en lista general)
   const teamUserIds = displayUsers.map(u => u.id);
   const teamRequests = store.requests.filter(r => teamUserIds.includes(r.userId)).sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-  // Solicitudes del usuario que se está editando
   const editingUserRequests = editingUser && editingUser.id ? store.requests.filter(r => r.userId === editingUser.id).sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()) : [];
 
   const openEditModal = (u: User) => {
@@ -244,7 +241,6 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
     e.preventDefault();
     if(!editingUser) return;
 
-    // CREACIÓN
     if (editingUser.id === '') {
         if (!newPassword) {
             alert('La contraseña es obligatoria para nuevos usuarios.');
@@ -252,7 +248,6 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
         }
         await store.createUser(editingUser, newPassword);
     } 
-    // EDICIÓN
     else {
         store.updateUserRole(editingUser.id, editingUser.role);
         
@@ -294,7 +289,6 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
 
   const isCreating = editingUser && editingUser.id === '';
 
-  // Determinar qué departamentos mostrar en el filtro
   const availableDeptsForFilter = currentUser.role === Role.ADMIN 
         ? store.departments 
         : store.departments.filter(d => d.supervisorIds.includes(currentUser.id));
@@ -302,7 +296,7 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
   return (
     <div className="space-y-8 animate-fade-in">
       
-      {/* SECCIÓN 0: Estadísticas de Equipo (Nuevo) */}
+      {/* SECCIÓN 0: Estadísticas de Equipo */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex flex-col justify-between">
               <div>
@@ -355,139 +349,168 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
           </div>
       </div>
 
-      {/* SECCIÓN 1: Tabla de Usuarios */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-        <div className="p-6 border-b border-slate-100 flex flex-col md:flex-row justify-between items-center gap-4">
-          <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-            <Users className="text-blue-600"/> Gestión de Usuarios {currentUser.role === Role.ADMIN ? '(Global)' : '(Equipo)'}
-          </h2>
-          
-          <div className="flex gap-3 items-center w-full md:w-auto">
-              {/* FILTRO DEPARTAMENTO */}
-              <div className="relative flex-1 md:flex-none">
-                  <Filter className="absolute left-3 top-2.5 text-slate-400 w-4 h-4" />
-                  <select 
-                      className="w-full md:w-48 pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-50 focus:bg-white transition-colors"
-                      value={filterDeptId}
-                      onChange={(e) => setFilterDeptId(e.target.value)}
-                  >
-                      <option value="">Todos los Dptos.</option>
-                      {availableDeptsForFilter.map(d => (
-                          <option key={d.id} value={d.id}>{d.name}</option>
-                      ))}
-                  </select>
-              </div>
-
-              <span className="text-sm text-slate-500 bg-slate-100 px-3 py-1 rounded-full whitespace-nowrap">
-                  {displayUsers.length} Emp.
-              </span>
-              
-              {currentUser.role === Role.ADMIN && (
-                  <button onClick={openCreateModal} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-md transition-colors whitespace-nowrap">
-                      <UserPlus size={16} /> Nuevo
-                  </button>
-              )}
-          </div>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm text-slate-600">
-            <thead className="bg-slate-50 text-xs uppercase font-semibold text-slate-500">
-              <tr>
-                <th className="px-6 py-4">Empleado</th>
-                <th className="px-6 py-4">Rol</th>
-                <th className="px-6 py-4">Dpto.</th>
-                <th className="px-6 py-4 text-center">Días</th>
-                <th className="px-6 py-4 text-center">Horas</th>
-                <th className="px-6 py-4">Acciones</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {displayUsers.map((u) => (
-                <tr key={u.id} className="hover:bg-slate-50 transition-colors">
-                  <td className="px-6 py-4 font-medium text-slate-900 flex items-center gap-3">
-                    <img src={u.avatar} className="w-8 h-8 rounded-full" />
-                    <div>
-                        <div className="font-bold">{u.name}</div>
-                        <div className="text-xs text-slate-400">{u.email}</div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className={`px-2 py-1 rounded-full text-xs font-bold ${
-                      u.role === Role.ADMIN ? 'bg-purple-100 text-purple-700' :
-                      u.role === Role.SUPERVISOR ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-700'
-                    }`}>
-                      {u.role}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-xs">{getDeptName(u.departmentId)}</td>
-                  <td className="px-6 py-4 text-center font-mono font-bold text-orange-600 bg-orange-50/50 rounded-lg">{u.daysAvailable}</td>
-                  <td className="px-6 py-4 text-center font-mono font-bold text-blue-600 bg-blue-50/50 rounded-lg">{u.overtimeHours}h</td>
-                  <td className="px-6 py-4">
-                    <div className="flex gap-2">
-                        <button onClick={() => openEditModal(u)} className="text-blue-600 hover:text-blue-800 p-2 hover:bg-blue-50 rounded-lg transition-colors" title="Editar Ficha">
-                        <Edit2 size={16} />
-                        </button>
-                        <button onClick={() => handleDeleteUser(u.id)} className="text-red-500 hover:text-red-700 p-2 hover:bg-red-50 rounded-lg transition-colors" title="Borrar">
-                        <Trash2 size={16} />
-                        </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      {/* Tabs List / Planning */}
+      <div className="flex border-b border-slate-200">
+         <button onClick={() => setViewTab('list')} className={`px-6 py-2 text-sm font-bold border-b-2 transition-colors ${viewTab==='list' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500'}`}>
+            <Users size={16} className="inline mr-2"/> Lista de Empleados
+         </button>
+         <button onClick={() => setViewTab('planning')} className={`px-6 py-2 text-sm font-bold border-b-2 transition-colors ${viewTab==='planning' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500'}`}>
+            <Paintbrush size={16} className="inline mr-2"/> Planificación de Turnos
+         </button>
       </div>
 
-      {/* SECCIÓN 2: Historial General del Equipo */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-        <div className="p-6 border-b border-slate-100">
-            <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                <Activity className="text-indigo-500" /> Actividad Reciente del Equipo
+      {viewTab === 'list' ? (
+      <>
+        {/* SECCIÓN 1: Tabla de Usuarios */}
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+            <div className="p-6 border-b border-slate-100 flex flex-col md:flex-row justify-between items-center gap-4">
+            <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+                <Users className="text-blue-600"/> Gestión de Usuarios {currentUser.role === Role.ADMIN ? '(Global)' : '(Equipo)'}
             </h2>
+            
+            <div className="flex gap-3 items-center w-full md:w-auto">
+                {/* FILTRO DEPARTAMENTO */}
+                <div className="relative flex-1 md:flex-none">
+                    <Filter className="absolute left-3 top-2.5 text-slate-400 w-4 h-4" />
+                    <select 
+                        className="w-full md:w-48 pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-50 focus:bg-white transition-colors"
+                        value={filterDeptId}
+                        onChange={(e) => setFilterDeptId(e.target.value)}
+                    >
+                        <option value="">Todos los Dptos.</option>
+                        {availableDeptsForFilter.map(d => (
+                            <option key={d.id} value={d.id}>{d.name}</option>
+                        ))}
+                    </select>
+                </div>
+
+                <span className="text-sm text-slate-500 bg-slate-100 px-3 py-1 rounded-full whitespace-nowrap">
+                    {displayUsers.length} Emp.
+                </span>
+                
+                {currentUser.role === Role.ADMIN && (
+                    <button onClick={openCreateModal} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-md transition-colors whitespace-nowrap">
+                        <UserPlus size={16} /> Nuevo
+                    </button>
+                )}
+            </div>
+            </div>
+            <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm text-slate-600">
+                <thead className="bg-slate-50 text-xs uppercase font-semibold text-slate-500">
+                <tr>
+                    <th className="px-6 py-4">Empleado</th>
+                    <th className="px-6 py-4">Rol</th>
+                    <th className="px-6 py-4">Dpto.</th>
+                    <th className="px-6 py-4 text-center">Días</th>
+                    <th className="px-6 py-4 text-center">Horas</th>
+                    <th className="px-6 py-4">Acciones</th>
+                </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                {displayUsers.map((u) => (
+                    <tr key={u.id} className="hover:bg-slate-50 transition-colors">
+                    <td className="px-6 py-4 font-medium text-slate-900 flex items-center gap-3">
+                        <img src={u.avatar} className="w-8 h-8 rounded-full" />
+                        <div>
+                            <div className="font-bold">{u.name}</div>
+                            <div className="text-xs text-slate-400">{u.email}</div>
+                        </div>
+                    </td>
+                    <td className="px-6 py-4">
+                        <span className={`px-2 py-1 rounded-full text-xs font-bold ${
+                        u.role === Role.ADMIN ? 'bg-purple-100 text-purple-700' :
+                        u.role === Role.SUPERVISOR ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-700'
+                        }`}>
+                        {u.role}
+                        </span>
+                    </td>
+                    <td className="px-6 py-4 text-xs">{getDeptName(u.departmentId)}</td>
+                    <td className="px-6 py-4 text-center font-mono font-bold text-orange-600 bg-orange-50/50 rounded-lg">{u.daysAvailable}</td>
+                    <td className="px-6 py-4 text-center font-mono font-bold text-blue-600 bg-blue-50/50 rounded-lg">{u.overtimeHours}h</td>
+                    <td className="px-6 py-4">
+                        <div className="flex gap-2">
+                            <button onClick={() => openEditModal(u)} className="text-blue-600 hover:text-blue-800 p-2 hover:bg-blue-50 rounded-lg transition-colors" title="Editar Ficha">
+                            <Edit2 size={16} />
+                            </button>
+                            <button onClick={() => handleDeleteUser(u.id)} className="text-red-500 hover:text-red-700 p-2 hover:bg-red-50 rounded-lg transition-colors" title="Borrar">
+                            <Trash2 size={16} />
+                            </button>
+                        </div>
+                    </td>
+                    </tr>
+                ))}
+                </tbody>
+            </table>
+            </div>
         </div>
-        <div className="max-h-96 overflow-y-auto">
-            {teamRequests.length === 0 ? (
-                <div className="p-8 text-center text-slate-400">No hay actividad reciente.</div>
-            ) : (
-                <table className="w-full text-sm text-left">
-                    <thead className="bg-slate-50 text-xs text-slate-500 uppercase sticky top-0">
-                        <tr>
-                            <th className="px-6 py-3">Empleado</th>
-                            <th className="px-6 py-3">Tipo</th>
-                            <th className="px-6 py-3">Fechas</th>
-                            <th className="px-6 py-3">Estado</th>
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                        {teamRequests.map(req => {
-                            const user = store.users.find(u => u.id === req.userId);
-                            return (
-                                <tr key={req.id} className="hover:bg-slate-50 cursor-pointer" onClick={() => onViewRequest(req)}>
-                                    <td className="px-6 py-3 font-medium text-slate-700">{user?.name}</td>
-                                    <td className="px-6 py-3">{req.label}</td>
-                                    <td className="px-6 py-3 text-slate-500">
-                                        {new Date(req.startDate).toLocaleDateString()}
-                                        {req.endDate && ` - ${new Date(req.endDate).toLocaleDateString()}`}
-                                        {req.hours && ` (${req.hours}h)`}
-                                    </td>
-                                    <td className="px-6 py-3">
-                                        <span className={`px-2 py-1 rounded-full text-xs font-bold ${
-                                            req.status === RequestStatus.APPROVED ? 'bg-green-100 text-green-700' :
-                                            req.status === RequestStatus.REJECTED ? 'bg-red-100 text-red-700' :
-                                            'bg-yellow-100 text-yellow-700'
-                                        }`}>
-                                            {req.status}
-                                        </span>
-                                    </td>
-                                </tr>
-                            )
-                        })}
-                    </tbody>
-                </table>
-            )}
+
+        {/* SECCIÓN 2: Historial General del Equipo */}
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+            <div className="p-6 border-b border-slate-100">
+                <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                    <Activity className="text-indigo-500" /> Actividad Reciente del Equipo
+                </h2>
+            </div>
+            <div className="max-h-96 overflow-y-auto">
+                {teamRequests.length === 0 ? (
+                    <div className="p-8 text-center text-slate-400">No hay actividad reciente.</div>
+                ) : (
+                    <table className="w-full text-sm text-left">
+                        <thead className="bg-slate-50 text-xs text-slate-500 uppercase sticky top-0">
+                            <tr>
+                                <th className="px-6 py-3">Empleado</th>
+                                <th className="px-6 py-3">Tipo</th>
+                                <th className="px-6 py-3">Fechas</th>
+                                <th className="px-6 py-3">Estado</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                            {teamRequests.map(req => {
+                                const user = store.users.find(u => u.id === req.userId);
+                                return (
+                                    <tr key={req.id} className="hover:bg-slate-50 cursor-pointer" onClick={() => onViewRequest(req)}>
+                                        <td className="px-6 py-3 font-medium text-slate-700">{user?.name}</td>
+                                        <td className="px-6 py-3">{req.label}</td>
+                                        <td className="px-6 py-3 text-slate-500">
+                                            {new Date(req.startDate).toLocaleDateString()}
+                                            {req.endDate && ` - ${new Date(req.endDate).toLocaleDateString()}`}
+                                            {req.hours && ` (${req.hours}h)`}
+                                        </td>
+                                        <td className="px-6 py-3">
+                                            <span className={`px-2 py-1 rounded-full text-xs font-bold ${
+                                                req.status === RequestStatus.APPROVED ? 'bg-green-100 text-green-700' :
+                                                req.status === RequestStatus.REJECTED ? 'bg-red-100 text-red-700' :
+                                                'bg-yellow-100 text-yellow-700'
+                                            }`}>
+                                                {req.status}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                )
+                            })}
+                        </tbody>
+                    </table>
+                )}
+            </div>
         </div>
-      </div>
+      </>
+      ) : (
+          /* VISTA PLANIFICACIÓN */
+          <div className="animate-fade-in">
+              <div className="mb-4 flex items-center justify-between">
+                 <h2 className="text-xl font-bold text-slate-800">Planificador de Turnos</h2>
+                 <div className="flex items-center gap-2 text-sm text-slate-500">
+                     <Filter size={16}/>
+                     <select className="bg-white border border-slate-200 rounded-lg p-2" value={filterDeptId} onChange={e=>setFilterDeptId(e.target.value)}>
+                         <option value="">Todos mis departamentos</option>
+                         {availableDeptsForFilter.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                     </select>
+                 </div>
+              </div>
+              <ShiftScheduler users={displayUsers} />
+          </div>
+      )}
 
       {/* MODAL DE EDICIÓN / CREACIÓN */}
       {editingUser && (
@@ -564,7 +587,7 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
 
               <hr className="border-slate-100" />
 
-              {/* Ajuste de Saldos (Visible tanto en creación para inicializar como en edición) */}
+              {/* Ajuste de Saldos */}
               <div>
                   <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
                       <FileText size={18} className="text-orange-500"/> {isCreating ? 'Saldos Iniciales' : 'Gestión de Saldos'}
@@ -639,7 +662,6 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
                   </div>
               </div>
 
-              {/* LISTA DE SOLICITUDES DEL USUARIO (Solo si NO estamos creando) */}
               {!isCreating && (
                   <div>
                       <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2">

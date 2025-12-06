@@ -93,10 +93,40 @@ export interface EmailTemplate {
   };
 }
 
+// --- TURNOS ---
+export interface ShiftSegment {
+  start: string; // "09:00"
+  end: string;   // "14:00"
+}
+
+export interface ShiftType {
+  id: string;
+  name: string;
+  color: string; // Hex code
+  segments: ShiftSegment[];
+}
+
+export interface ShiftAssignment {
+  id: string;
+  userId: string;
+  date: string; // YYYY-MM-DD
+  shiftTypeId: string;
+}
+
+// --- FESTIVOS ---
+export interface Holiday {
+  id: string;
+  date: string; // YYYY-MM-DD
+  name: string;
+}
+
 export interface AppConfig {
   leaveTypes: LeaveTypeConfig[];
   emailTemplates: EmailTemplate[];
-  shifts: string[];
+  shifts: string[]; // Deprecated, kept for compatibility if needed
+  shiftTypes: ShiftType[]; // New proper shift structure
+  shiftAssignments: ShiftAssignment[]; // Loaded assignments
+  holidays: Holiday[]; // Global holidays
   smtpSettings: {
     host: string;
     port: number;

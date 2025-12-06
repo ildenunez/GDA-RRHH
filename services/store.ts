@@ -1,6 +1,9 @@
 
 
-import { User, Role, Department, LeaveRequest, RequestStatus, AppConfig, Notification, LeaveTypeConfig, EmailTemplate } from '../types';
+
+
+
+import { User, Role, Department, LeaveRequest, RequestStatus, AppConfig, Notification, LeaveTypeConfig, EmailTemplate, ShiftType, ShiftAssignment, Holiday } from '../types';
 import { supabase } from './supabase';
 
 const DEFAULT_LEAVE_TYPES: LeaveTypeConfig[] = [
@@ -89,16 +92,18 @@ class Store {
   requests: LeaveRequest[] = [];
   notifications: Notification[] = [];
   config: AppConfig = {
-    leaveTypes: [], // Se cargarán de DB
+    leaveTypes: [],
     emailTemplates: [...DEFAULT_EMAIL_TEMPLATES],
-    shifts: ['Mañana (8-15)', 'Tarde (15-22)', 'Noche (22-6)'],
+    shifts: [],
+    shiftTypes: [],
+    shiftAssignments: [],
+    holidays: [],
     smtpSettings: { host: 'smtp.gmail.com', port: 587, user: 'admin@empresa.com', password: '', enabled: false }
   };
 
   currentUser: User | null = null;
   initialized = false;
 
-  // Carga inicial de datos desde Supabase
   async init() {
     if (this.initialized) return;
 
@@ -108,6 +113,9 @@ class Store {
         const { data: reqsData } = await supabase.from('requests').select('*');
         const { data: typesData } = await supabase.from('leave_types').select('*');
         const { data: notifData } = await supabase.from('notifications').select('*');
+        const { data: shiftTypesData } = await supabase.from('shift_types').select('*');
+        const { data: shiftAssignmentsData } = await supabase.from('shift_assignments').select('*');
+        const { data: holidaysData } = await supabase.from('holidays').select('*');
 
         if (usersData) this.users = this.mapUsersFromDB(usersData);
         if (deptsData) this.departments = deptsData.map((d: any) => ({
@@ -118,7 +126,6 @@ class Store {
         if (reqsData) this.requests = this.mapRequestsFromDB(reqsData);
         if (notifData) this.notifications = this.mapNotificationsFromDB(notifData);
         
-        // Cargar Tipos de Ausencia o usar defaults si la tabla está vacía
         if (typesData && typesData.length > 0) {
             this.config.leaveTypes = typesData.map((t: any) => ({
                 id: t.id,
@@ -128,7 +135,32 @@ class Store {
             }));
         } else {
             this.config.leaveTypes = [...DEFAULT_LEAVE_TYPES];
-            // Opcional: Podríamos persistir los defaults aquí
+        }
+
+        if (shiftTypesData) {
+            this.config.shiftTypes = shiftTypesData.map((s: any) => ({
+                id: s.id,
+                name: s.name,
+                color: s.color,
+                segments: s.segments
+            }));
+        }
+
+        if (shiftAssignmentsData) {
+            this.config.shiftAssignments = shiftAssignmentsData.map((a: any) => ({
+                id: a.id,
+                userId: a.user_id,
+                date: a.date,
+                shiftTypeId: a.shift_type_id
+            }));
+        }
+
+        if (holidaysData) {
+            this.config.holidays = holidaysData.map((h: any) => ({
+                id: h.id,
+                date: h.date,
+                name: h.name
+            }));
         }
         
         this.initialized = true;
@@ -282,43 +314,30 @@ class Store {
   // --- SMTP y Emails Manuales ---
   updateSmtpSettings(settings: AppConfig['smtpSettings']) {
       this.config.smtpSettings = settings;
-      // Persistir si fuera necesario (e.g. tabla settings)
   }
 
   async sendManualEmail(to: string | string[], subject: string, body: string) {
       console.log(`[SMTP] Enviando email a: ${Array.isArray(to) ? to.join(', ') : to}`);
-      console.log(`[SMTP] Asunto: ${subject}`);
-      console.log(`[SMTP] Cuerpo: ${body}`);
       return new Promise(resolve => setTimeout(resolve, 1000));
   }
 
   async sendMassNotification(userIds: string[], message: string) {
       if (userIds.length === 0) return;
-
-      const payload = userIds.map(uid => ({
-          user_id: uid,
-          message,
-          read: false
-      }));
-
+      const payload = userIds.map(uid => ({ user_id: uid, message, read: false }));
       const { data, error } = await supabase.from('notifications').insert(payload).select();
-      
       if (data && !error) {
-          // Agregar al store local para actualización instantánea
           const newNotifs = this.mapNotificationsFromDB(data);
           this.notifications.unshift(...newNotifs);
       } else {
-          console.error("Error enviando notificaciones masivas", error);
-          alert(`Error al enviar notificaciones: ${error?.message || JSON.stringify(error)}`);
+           console.error("Error sending mass notification", error);
+           alert(`Error enviando notificaciones: ${error?.message || JSON.stringify(error)}`);
       }
   }
 
   async createRequest(req: Partial<LeaveRequest>) {
     if (!this.currentUser) return;
-    
     const leaveType = this.config.leaveTypes.find(t => t.id === req.typeId);
     const label = leaveType ? leaveType.label : (req.typeId === 'overtime_earn' ? 'Horas Extra Generadas' : req.typeId === 'overtime_pay' ? 'Cobro Horas' : 'Canje Días por Horas');
-
     const newReqPayload = {
       user_id: this.currentUser.id,
       type_id: req.typeId || 'general',
@@ -332,9 +351,7 @@ class Store {
       is_consumed: false,
       consumed_hours: 0
     };
-
     const { data, error } = await supabase.from('requests').insert(newReqPayload).select().single();
-    
     if (data && !error) {
         const realReq = this.mapRequestsFromDB([data])[0];
         this.requests.unshift(realReq);
@@ -348,7 +365,6 @@ class Store {
   async updateRequest(reqId: string, data: Partial<LeaveRequest>) {
     const idx = this.requests.findIndex(r => r.id === reqId);
     if (idx === -1) return;
-
     await supabase.from('requests').update({
         start_date: data.startDate,
         end_date: data.endDate,
@@ -356,8 +372,6 @@ class Store {
         reason: data.reason,
         overtime_usage: data.overtimeUsage
     }).eq('id', reqId);
-    
-    // Update local
     this.requests[idx] = { ...this.requests[idx], ...data };
     this.createNotification(this.requests[idx].userId, `Solicitud actualizada`);
   }
@@ -370,16 +384,13 @@ class Store {
   async updateRequestStatus(reqId: string, status: RequestStatus, adminId: string, comment?: string) {
     const reqIndex = this.requests.findIndex(r => r.id === reqId);
     if (reqIndex === -1) return;
-    
     const req = this.requests[reqIndex];
     const user = this.users.find(u => u.id === req.userId);
-    
     let newDays = user?.daysAvailable || 0;
     let newOvertime = user?.overtimeHours || 0;
 
     if (status === RequestStatus.APPROVED && user) {
       const leaveType = this.config.leaveTypes.find(t => t.id === req.typeId);
-
       if (leaveType) {
           if (leaveType.subtractsDays) {
             const days = req.endDate ? Math.ceil((new Date(req.endDate).getTime() - new Date(req.startDate).getTime()) / (1000 * 3600 * 24)) + 1 : 1;
@@ -391,10 +402,7 @@ class Store {
       } 
       else if (req.typeId === 'overtime_spend_days' || req.typeId === 'overtime_pay') {
          newOvertime -= (req.hours || 0);
-         if (req.typeId === 'overtime_spend_days') {
-            newDays += ((req.hours || 0) / 8); 
-         }
-         
+         if (req.typeId === 'overtime_spend_days') newDays += ((req.hours || 0) / 8); 
          if (req.overtimeUsage) {
              for (const usage of req.overtimeUsage) {
                  const sourceReq = this.requests.find(r => r.id === usage.requestId);
@@ -403,41 +411,24 @@ class Store {
                      const isFullyConsumed = newConsumed >= (sourceReq.hours || 0);
                      sourceReq.consumedHours = newConsumed;
                      sourceReq.isConsumed = isFullyConsumed;
-                     await supabase.from('requests').update({
-                         consumed_hours: newConsumed,
-                         is_consumed: isFullyConsumed
-                     }).eq('id', usage.requestId);
+                     await supabase.from('requests').update({ consumed_hours: newConsumed, is_consumed: isFullyConsumed }).eq('id', usage.requestId);
                  }
              }
          }
       }
-      
-      await supabase.from('users').update({
-          days_available: newDays,
-          overtime_hours: newOvertime
-      }).eq('id', user.id);
-      
+      await supabase.from('users').update({ days_available: newDays, overtime_hours: newOvertime }).eq('id', user.id);
       user.daysAvailable = newDays;
       user.overtimeHours = newOvertime;
     }
-
     this.requests[reqIndex] = { ...req, status, adminComment: comment };
-    
-    // Update DB including admin_comment
-    await supabase.from('requests').update({ 
-        status, 
-        admin_comment: comment 
-    }).eq('id', reqId);
-
+    await supabase.from('requests').update({ status, admin_comment: comment }).eq('id', reqId);
     this.createNotification(req.userId, `Tu solicitud ${req.label} ha sido ${status}`);
-    
     if (status === RequestStatus.APPROVED) this.sendEmailNotification('approved', req);
     if (status === RequestStatus.REJECTED) this.sendEmailNotification('rejected', req);
   }
 
   async createUser(userData: Omit<User, 'id'>, password: string): Promise<void> {
       const newId = Math.random().toString(36).substr(2, 9);
-      
       const payload = {
           id: newId,
           name: userData.name,
@@ -449,45 +440,27 @@ class Store {
           overtime_hours: userData.overtimeHours,
           avatar: userData.avatar
       };
-
       const { error } = await supabase.from('users').insert(payload);
-
       if (!error) {
           const newUser: User = { ...userData, id: newId };
           this.users.push(newUser);
       } else {
           console.error('Error creating user', error);
-          const msg = error.message || JSON.stringify(error);
-          alert('Error al crear usuario: ' + msg);
+          alert('Error al crear usuario: ' + (error.message || JSON.stringify(error)));
       }
   }
 
-  // --- NUEVO: Actualización de Perfil (Usuario logueado) ---
   async updateUserProfile(userId: string, data: { name: string, email: string, password?: string, avatar?: string }) {
       const userIdx = this.users.findIndex(u => u.id === userId);
       if (userIdx === -1) return;
-
-      const updates: any = {
-          name: data.name,
-          email: data.email,
-          avatar: data.avatar
-      };
-
-      if (data.password && data.password.trim() !== '') {
-          updates.password = data.password;
-      }
-
+      const updates: any = { name: data.name, email: data.email, avatar: data.avatar };
+      if (data.password && data.password.trim() !== '') updates.password = data.password;
       const { error } = await supabase.from('users').update(updates).eq('id', userId);
-
       if (!error) {
-          // Actualizar estado local
           const updatedUser = { ...this.users[userIdx], name: data.name, email: data.email };
           if (data.avatar) updatedUser.avatar = data.avatar;
-          
           this.users[userIdx] = updatedUser;
-          if (this.currentUser && this.currentUser.id === userId) {
-              this.currentUser = updatedUser;
-          }
+          if (this.currentUser && this.currentUser.id === userId) this.currentUser = updatedUser;
       } else {
           throw new Error(error.message);
       }
@@ -516,26 +489,15 @@ class Store {
      }
   }
 
-  // --- PERSISTENCIA DE TIPOS DE AUSENCIA ---
   async addLeaveType(type: LeaveTypeConfig) {
       this.config.leaveTypes.push(type);
-      await supabase.from('leave_types').insert({
-          id: type.id,
-          label: type.label,
-          subtracts_days: type.subtractsDays,
-          fixed_range: type.fixedRange
-      });
+      await supabase.from('leave_types').insert({ id: type.id, label: type.label, subtracts_days: type.subtractsDays, fixed_range: type.fixedRange });
   }
 
   async updateLeaveType(updatedType: LeaveTypeConfig) {
       const idx = this.config.leaveTypes.findIndex(t => t.id === updatedType.id);
       if (idx !== -1) this.config.leaveTypes[idx] = updatedType;
-      
-      await supabase.from('leave_types').update({
-          label: updatedType.label,
-          subtracts_days: updatedType.subtractsDays,
-          fixed_range: updatedType.fixedRange
-      }).eq('id', updatedType.id);
+      await supabase.from('leave_types').update({ label: updatedType.label, subtracts_days: updatedType.subtractsDays, fixed_range: updatedType.fixedRange }).eq('id', updatedType.id);
   }
 
   async removeLeaveType(id: string) {
@@ -543,29 +505,20 @@ class Store {
       await supabase.from('leave_types').delete().eq('id', id);
   }
 
-  // --- PERSISTENCIA DE DEPARTAMENTOS ---
   async addDepartment(dept: Department) {
     this.departments.push(dept);
-    await supabase.from('departments').insert({
-        id: dept.id,
-        name: dept.name,
-        supervisor_ids: dept.supervisorIds
-    });
+    await supabase.from('departments').insert({ id: dept.id, name: dept.name, supervisor_ids: dept.supervisorIds });
   }
 
   async updateDepartment(dept: Department) {
     const idx = this.departments.findIndex(d => d.id === dept.id);
     if (idx !== -1) this.departments[idx] = dept;
-    await supabase.from('departments').update({
-        name: dept.name,
-        supervisor_ids: dept.supervisorIds
-    }).eq('id', dept.id);
+    await supabase.from('departments').update({ name: dept.name, supervisor_ids: dept.supervisorIds }).eq('id', dept.id);
   }
 
   async removeDepartment(id: string) {
     this.departments = this.departments.filter(d => d.id !== id);
     this.users.forEach(u => { if (u.departmentId === id) u.departmentId = ''; });
-    
     await supabase.from('departments').delete().eq('id', id);
     await supabase.from('users').update({ department_id: null }).eq('department_id', id);
   }
@@ -575,23 +528,10 @@ class Store {
       if (idx !== -1) this.config.emailTemplates[idx] = template;
   }
 
-  // --- GESTIÓN DE NOTIFICACIONES (Persistentes) ---
-  
   async createNotification(userId: string, message: string) {
-    const { data } = await supabase.from('notifications').insert({
-        user_id: userId,
-        message,
-        read: false
-    }).select().single();
-
+    const { data } = await supabase.from('notifications').insert({ user_id: userId, message, read: false }).select().single();
     if (data) {
-        this.notifications.unshift({
-            id: data.id,
-            userId: data.user_id,
-            message: data.message,
-            read: data.read,
-            date: data.created_at
-        });
+        this.notifications.unshift({ id: data.id, userId: data.user_id, message: data.message, read: data.read, date: data.created_at });
     }
   }
 
@@ -608,15 +548,110 @@ class Store {
   }
 
   async markAllNotificationsAsRead(userId: string) {
-      this.notifications.forEach(n => {
-          if (n.userId === userId) n.read = true;
-      });
+      this.notifications.forEach(n => { if (n.userId === userId) n.read = true; });
       await supabase.from('notifications').update({ read: true }).eq('user_id', userId);
   }
 
   async deleteNotification(notifId: string) {
       this.notifications = this.notifications.filter(n => n.id !== notifId);
       await supabase.from('notifications').delete().eq('id', notifId);
+  }
+
+  // --- GESTIÓN DE TURNOS ---
+  async addShiftType(st: ShiftType) {
+      this.config.shiftTypes.push(st);
+      await supabase.from('shift_types').insert({
+          id: st.id,
+          name: st.name,
+          color: st.color,
+          segments: st.segments
+      });
+  }
+
+  async updateShiftType(st: ShiftType) {
+      const idx = this.config.shiftTypes.findIndex(s => s.id === st.id);
+      if (idx !== -1) this.config.shiftTypes[idx] = st;
+      await supabase.from('shift_types').update({
+          name: st.name,
+          color: st.color,
+          segments: st.segments
+      }).eq('id', st.id);
+  }
+
+  async deleteShiftType(id: string) {
+      this.config.shiftTypes = this.config.shiftTypes.filter(s => s.id !== id);
+      await supabase.from('shift_types').delete().eq('id', id);
+  }
+
+  async assignShift(userId: string, date: string, shiftTypeId: string) {
+      // Remover asignación existente para ese día si existe (upsert lógico)
+      const existingIdx = this.config.shiftAssignments.findIndex(a => a.userId === userId && a.date === date);
+      if (existingIdx !== -1) {
+          if (shiftTypeId === '') {
+              // Borrar
+              const assignmentId = this.config.shiftAssignments[existingIdx].id;
+              this.config.shiftAssignments.splice(existingIdx, 1);
+              await supabase.from('shift_assignments').delete().eq('id', assignmentId);
+              return;
+          } else {
+              // Actualizar local
+              this.config.shiftAssignments[existingIdx].shiftTypeId = shiftTypeId;
+          }
+      } else if (shiftTypeId !== '') {
+          // Crear local placeholder (DB generará ID real, pero para UI sirve)
+          this.config.shiftAssignments.push({ id: 'temp-'+Math.random(), userId, date, shiftTypeId });
+      }
+
+      // Persistir
+      if (shiftTypeId !== '') {
+          // Upsert en DB
+          const { data } = await supabase.from('shift_assignments').upsert({
+              user_id: userId,
+              date: date,
+              shift_type_id: shiftTypeId
+          }, { onConflict: 'user_id,date' }).select().single();
+          
+          // Actualizar con ID real si volvió
+          if (data) {
+              const localIdx = this.config.shiftAssignments.findIndex(a => a.userId === userId && a.date === date);
+              if (localIdx !== -1) this.config.shiftAssignments[localIdx].id = data.id;
+          }
+      }
+  }
+
+  getShiftForUserDate(userId: string, date: string): ShiftType | undefined {
+      const assignment = this.config.shiftAssignments.find(a => a.userId === userId && a.date === date);
+      if (!assignment) return undefined;
+      return this.config.shiftTypes.find(t => t.id === assignment.shiftTypeId);
+  }
+
+  getNextShift(userId: string): { date: string, shift: ShiftType } | undefined {
+      // FIX: Use local today string to avoid timezone offset issues
+      const now = new Date();
+      const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      
+      const futureAssignments = this.config.shiftAssignments
+          .filter(a => a.userId === userId && a.date >= today)
+          .sort((a,b) => a.date.localeCompare(b.date));
+      
+      if (futureAssignments.length > 0) {
+          const shift = this.config.shiftTypes.find(t => t.id === futureAssignments[0].shiftTypeId);
+          if (shift) return { date: futureAssignments[0].date, shift };
+      }
+      return undefined;
+  }
+
+  // --- FESTIVOS ---
+  async addHoliday(date: string, name: string) {
+      const { data } = await supabase.from('holidays').insert({ date, name }).select().single();
+      if (data) {
+          this.config.holidays.push({ id: data.id, date: data.date, name: data.name });
+      }
+  }
+
+  async deleteHoliday(id: string) {
+      await supabase.from('holidays').delete().eq('id', id);
+      this.config.holidays = this.config.holidays.filter(h => h.id !== id);
   }
 }
 

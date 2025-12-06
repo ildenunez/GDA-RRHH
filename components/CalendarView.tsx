@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo } from 'react';
 import { User, RequestStatus, Role } from '../types';
 import { store } from '../services/store';
@@ -12,7 +13,6 @@ interface CalendarViewProps {
 
 const CalendarView: React.FC<CalendarViewProps> = ({ user }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
-  // Filtro por departamento (Solo visible para supervisors/admins)
   const [selectedDeptId, setSelectedDeptId] = useState<string>('');
   
   const year = currentDate.getFullYear();
@@ -21,39 +21,42 @@ const CalendarView: React.FC<CalendarViewProps> = ({ user }) => {
   const firstDayOfMonth = new Date(year, month, 1);
   const lastDayOfMonth = new Date(year, month + 1, 0);
   
-  const startingDay = (firstDayOfMonth.getDay() + 6) % 7; // Ajustar para que Lunes sea 0
+  const startingDay = (firstDayOfMonth.getDay() + 6) % 7; 
   const daysInMonth = lastDayOfMonth.getDate();
 
   const isSupervisorOrAdmin = user.role === Role.SUPERVISOR || user.role === Role.ADMIN;
   
-  // Departamentos que puedo ver
   const allowedDepts = useMemo(() => {
       if (user.role === Role.ADMIN) return store.departments;
       if (user.role === Role.SUPERVISOR) return store.departments.filter(d => d.supervisorIds.includes(user.id));
       return [];
   }, [user]);
 
-  // Obtener solicitudes para mostrar (aplicando filtro si existe)
   const requests = store.getCalendarRequests(user.id, selectedDeptId || undefined);
 
   const prevMonth = () => setCurrentDate(new Date(year, month - 1, 1));
   const nextMonth = () => setCurrentDate(new Date(year, month + 1, 1));
 
-  // Función para ver si un día tiene evento
+  // Obtener eventos (ausencias y TURNOS)
   const getEventsForDay = (day: number) => {
-    const dateStr = new Date(year, month, day).toISOString().split('T')[0];
+    // FIX: Construir string local manualmente para evitar desfases de zona horaria (UTC vs Local)
+    const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     
-    return requests.filter(req => {
+    // Ausencias
+    const absenceEvents = requests.filter(req => {
        const start = req.startDate.split('T')[0];
        const end = req.endDate ? req.endDate.split('T')[0] : start;
        return dateStr >= start && dateStr <= end;
     });
+
+    const myShift = store.getShiftForUserDate(user.id, dateStr);
+    const holiday = store.config.holidays.find(h => h.date === dateStr);
+
+    return { absences: absenceEvents, shift: myShift, holiday };
   };
 
   const getUserName = (id: string) => store.users.find(u => u.id === id)?.name.split(' ')[0] || 'User';
 
-  // --- Lógica de Conflictos ---
-  // Un conflicto es cuando >1 personas del MISMO departamento están ausentes (aprobadas) el mismo día.
   const conflicts = useMemo(() => {
       if (!isSupervisorOrAdmin) return [];
       
@@ -61,9 +64,9 @@ const CalendarView: React.FC<CalendarViewProps> = ({ user }) => {
       const daysToCheck = daysInMonth;
 
       for(let i = 1; i <= daysToCheck; i++) {
-          const dateStr = new Date(year, month, i).toISOString().split('T')[0];
+          // FIX: Construcción manual de fecha
+          const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
           
-          // Buscar todas las solicitudes APROBADAS que caen en este día
           const activeRequests = store.requests.filter(req => {
               if (req.status !== RequestStatus.APPROVED || store.isOvertimeRequest(req.typeId)) return false;
               const start = req.startDate.split('T')[0];
@@ -71,16 +74,12 @@ const CalendarView: React.FC<CalendarViewProps> = ({ user }) => {
               return dateStr >= start && dateStr <= end;
           });
 
-          // Agrupar por departamento
-          const deptMap: Record<string, string[]> = {}; // deptId -> userNames[]
+          const deptMap: Record<string, string[]> = {}; 
 
           activeRequests.forEach(req => {
               const u = store.users.find(user => user.id === req.userId);
               if (u && u.departmentId) {
-                  // Si estamos filtrando por depto, solo miramos ese
                   if (selectedDeptId && u.departmentId !== selectedDeptId) return;
-
-                  // Si soy supervisor, solo me importan mis deptos
                   if (user.role === Role.SUPERVISOR) {
                        const myDepts = store.departments.filter(d => d.supervisorIds.includes(user.id)).map(d => d.id);
                        if (!myDepts.includes(u.departmentId)) return;
@@ -93,7 +92,6 @@ const CalendarView: React.FC<CalendarViewProps> = ({ user }) => {
               }
           });
 
-          // Detectar si hay > 1 persona en el mismo depto
           Object.keys(deptMap).forEach(deptId => {
               if (deptMap[deptId].length > 1) {
                   const dName = store.departments.find(d => d.id === deptId)?.name || 'Dept';
@@ -106,7 +104,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({ user }) => {
           });
       }
       return conflictList;
-  }, [year, month, isSupervisorOrAdmin, selectedDeptId, requests]); // Recalcular si cambian inputs
+  }, [year, month, isSupervisorOrAdmin, selectedDeptId, requests]);
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -156,27 +154,53 @@ const CalendarView: React.FC<CalendarViewProps> = ({ user }) => {
             {/* Days */}
             {Array.from({ length: daysInMonth }).map((_, i) => {
                 const day = i + 1;
-                const events = getEventsForDay(day);
+                const { absences, shift, holiday } = getEventsForDay(day);
                 const isToday = new Date().toDateString() === new Date(year, month, day).toDateString();
 
                 return (
-                <div key={day} className={`min-h-[100px] border border-slate-100 rounded-lg p-2 transition-all hover:shadow-md ${isToday ? 'bg-blue-50 ring-2 ring-blue-100' : 'bg-white'}`}>
-                    <div className={`text-sm font-bold mb-1 ${isToday ? 'text-blue-600' : 'text-slate-700'}`}>{day}</div>
-                    
-                    <div className="space-y-1">
-                        {events.map((ev, idx) => (
-                        <div 
-                            key={ev.id + idx} 
-                            className={`text-[10px] px-1.5 py-0.5 rounded truncate font-medium border-l-2
-                            ${ev.status === RequestStatus.APPROVED ? 'bg-green-100 text-green-700 border-green-500' : 
-                                ev.status === RequestStatus.REJECTED ? 'bg-red-100 text-red-700 border-red-500' : 'bg-yellow-100 text-yellow-700 border-yellow-500'}
-                            `}
-                            title={`${getUserName(ev.userId)}: ${ev.label}`}
-                        >
-                            {getUserName(ev.userId)}
+                <div 
+                    key={day} 
+                    className={`min-h-[100px] border rounded-lg p-2 transition-all hover:shadow-md flex flex-col justify-between 
+                    ${holiday ? 'bg-red-50 border-red-200' : isToday ? 'bg-blue-50 ring-2 ring-blue-100 border-blue-200' : 'bg-white border-slate-100'}`}
+                >
+                    <div>
+                        <div className={`text-sm font-bold mb-1 flex justify-between ${holiday ? 'text-red-600' : isToday ? 'text-blue-600' : 'text-slate-700'}`}>
+                            {day}
                         </div>
-                        ))}
+                        
+                        {/* Holiday Label */}
+                        {holiday && (
+                            <div className="mb-2 text-[10px] uppercase font-bold text-red-500 tracking-tight leading-tight">
+                                {holiday.name}
+                            </div>
+                        )}
+                        
+                        <div className="space-y-1">
+                            {absences.map((ev, idx) => (
+                            <div 
+                                key={ev.id + idx} 
+                                className={`text-[10px] px-1.5 py-0.5 rounded truncate font-medium border-l-2
+                                ${ev.status === RequestStatus.APPROVED ? 'bg-green-100 text-green-700 border-green-500' : 
+                                    ev.status === RequestStatus.REJECTED ? 'bg-red-100 text-red-700 border-red-500' : 'bg-yellow-100 text-yellow-700 border-yellow-500'}
+                                `}
+                                title={`${getUserName(ev.userId)}: ${ev.label}`}
+                            >
+                                {getUserName(ev.userId)}
+                            </div>
+                            ))}
+                        </div>
                     </div>
+                    
+                    {/* Turno Visual */}
+                    {shift && !holiday && (
+                        <div 
+                            className="mt-1 text-[9px] font-bold text-white px-1.5 py-0.5 rounded shadow-sm truncate"
+                            style={{ backgroundColor: shift.color }}
+                            title={`Turno: ${shift.name} (${shift.segments.map(s => s.start+'-'+s.end).join(', ')})`}
+                        >
+                            {shift.name} ({shift.segments[0].start})
+                        </div>
+                    )}
                 </div>
                 );
             })}
@@ -186,11 +210,10 @@ const CalendarView: React.FC<CalendarViewProps> = ({ user }) => {
         <div className="px-6 pb-6 flex gap-4 text-xs text-slate-500">
             <div className="flex items-center gap-1"><div className="w-3 h-3 bg-green-100 border-l-2 border-green-500 rounded-sm"></div> Aprobado</div>
             <div className="flex items-center gap-1"><div className="w-3 h-3 bg-yellow-100 border-l-2 border-yellow-500 rounded-sm"></div> Pendiente</div>
-            <div className="flex items-center gap-1"><div className="w-3 h-3 bg-red-100 border-l-2 border-red-500 rounded-sm"></div> Rechazado</div>
+            <div className="flex items-center gap-1"><div className="w-3 h-3 bg-red-50 border border-red-200 rounded-sm"></div> Festivo</div>
         </div>
         </div>
 
-        {/* Sección de Conflictos */}
         {conflicts.length > 0 && (
             <div className="bg-red-50 border border-red-100 rounded-2xl p-6">
                 <h3 className="text-red-800 font-bold flex items-center gap-2 mb-4">

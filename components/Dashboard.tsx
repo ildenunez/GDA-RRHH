@@ -1,10 +1,11 @@
 
 
+
 import React, { useState } from 'react';
 import { User, RequestStatus, LeaveRequest } from '../types';
 import { store } from '../services/store';
 import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { Calendar, Clock, AlertCircle, CheckCircle, XCircle, Sun, PlusCircle, Timer, ChevronRight, ArrowLeft, History, Edit2, Trash2 } from 'lucide-react';
+import { Calendar, Clock, AlertCircle, CheckCircle, XCircle, Sun, PlusCircle, Timer, ChevronRight, ArrowLeft, History, Edit2, Trash2, Briefcase } from 'lucide-react';
 
 interface DashboardProps {
   user: User;
@@ -16,6 +17,7 @@ interface DashboardProps {
 const Dashboard: React.FC<DashboardProps> = ({ user, onNewRequest, onEditRequest, onViewRequest }) => {
   const [detailView, setDetailView] = useState<'none' | 'days' | 'hours'>('none');
   const requests = store.getMyRequests();
+  const nextShiftData = store.getNextShift(user.id);
 
   const handleDelete = (reqId: string) => {
       if(confirm('¿Seguro que deseas eliminar esta solicitud pendiente?')) {
@@ -193,6 +195,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNewRequest, onEditRequest
     );
   }
 
+  // Helper to format string date YYYY-MM-DD to locale string without timezone shift
+  const formatShiftDate = (dateStr: string) => {
+      const [y, m, d] = dateStr.split('-').map(Number);
+      const date = new Date(y, m - 1, d);
+      return date.toLocaleDateString('es-ES', {weekday: 'long', day: 'numeric'});
+  };
+
   // VISTA DASHBOARD PRINCIPAL
   return (
     <div className="space-y-6 animate-fade-in">
@@ -222,7 +231,31 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNewRequest, onEditRequest
       </div>
 
       {/* Tarjetas de Resumen Interactivas */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        {/* MI PRÓXIMO TURNO (NUEVO) */}
+        <div className="bg-gradient-to-br from-slate-800 to-slate-900 text-white p-6 rounded-2xl shadow-lg border border-slate-700 flex flex-col justify-between relative overflow-hidden">
+             <div className="absolute top-0 right-0 p-4 opacity-10"><Briefcase size={64}/></div>
+             <div>
+                 <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Mi Próximo Turno</p>
+                 {nextShiftData ? (
+                     <>
+                        <h3 className="text-xl font-bold capitalize">
+                            {formatShiftDate(nextShiftData.date)}
+                        </h3>
+                        <div className="mt-2 inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold bg-white/10 border border-white/20">
+                            <span className="w-2 h-2 rounded-full" style={{backgroundColor: nextShiftData.shift.color}}></span>
+                            {nextShiftData.shift.name}
+                        </div>
+                        <div className="mt-3 text-sm text-slate-300 font-mono">
+                            {nextShiftData.shift.segments.map(s => `${s.start}-${s.end}`).join(' / ')}
+                        </div>
+                     </>
+                 ) : (
+                     <div className="text-slate-400 italic text-sm mt-2">No tienes turnos asignados próximamente.</div>
+                 )}
+             </div>
+        </div>
+
         {stats.map((stat) => (
           <div 
             key={stat.id} 
