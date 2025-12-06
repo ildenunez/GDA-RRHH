@@ -1,9 +1,3 @@
-
-
-
-
-
-
 import React, { useState, useMemo } from 'react';
 import { User, RequestStatus, Role, LeaveRequest } from '../types';
 import { store } from '../services/store';
@@ -314,10 +308,14 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
   const getDeptName = (id: string) => store.departments.find(d => d.id === id)?.name || id;
 
   const isCreating = editingUser && editingUser.id === '';
+  const isAdmin = currentUser.role === Role.ADMIN;
 
   const availableDeptsForFilter = currentUser.role === Role.ADMIN 
         ? store.departments 
         : store.departments.filter(d => d.supervisorIds.includes(currentUser.id));
+
+  // Determine user for the Request Modal (either from full edit modal or from selected request)
+  const requestModalTargetUser = editingUser || (requestToEdit ? store.users.find(u => u.id === requestToEdit.userId) : null);
 
   return (
     <div className="space-y-8 animate-fade-in">
@@ -489,6 +487,7 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
                                 <th className="px-6 py-3">Tipo</th>
                                 <th className="px-6 py-3">Fechas</th>
                                 <th className="px-6 py-3">Estado</th>
+                                {isAdmin && <th className="px-6 py-3 text-right">Acciones</th>}
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
@@ -512,6 +511,12 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
                                                 {req.status}
                                             </span>
                                         </td>
+                                        {isAdmin && (
+                                            <td className="px-6 py-3 text-right" onClick={e => e.stopPropagation()}>
+                                                <button onClick={() => handleEditRequest(req)} className="text-blue-500 hover:bg-blue-100 p-1.5 rounded transition-colors mr-1" title="Editar"><Edit2 size={16}/></button>
+                                                <button onClick={() => handleDeleteRequest(req.id)} className="text-red-500 hover:bg-red-100 p-1.5 rounded transition-colors" title="Borrar y Devolver Saldo"><Trash2 size={16}/></button>
+                                            </td>
+                                        )}
                                     </tr>
                                 )
                             })}
@@ -758,11 +763,11 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
       )}
 
       {/* Modal de Creación/Edición Manual (Admin) */}
-      {showAdminRequestModal && editingUser && (
+      {showAdminRequestModal && requestModalTargetUser && (
           <RequestFormModal 
              onClose={() => { setShowAdminRequestModal(false); setRequestToEdit(null); }}
              user={currentUser}
-             targetUser={editingUser}
+             targetUser={requestModalTargetUser}
              initialTab={requestToEdit && store.isOvertimeRequest(requestToEdit.typeId) ? 'overtime' : 'absence'}
              editingRequest={requestToEdit}
           />
