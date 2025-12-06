@@ -1,8 +1,4 @@
 
-
-
-
-
 import React, { useState } from 'react';
 import { User, RequestStatus, LeaveRequest } from '../types';
 import { store } from '../services/store';
@@ -154,7 +150,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNewRequest, onEditRequest
                                             <div className="flex items-center gap-2">
                                                 <div className="font-medium text-slate-800">{req.label}</div>
                                                 {req.createdByAdmin && (
-                                                    <span className="bg-purple-100 text-purple-700 text-[10px] px-1.5 py-0.5 rounded-md font-bold flex items-center gap-0.5">
+                                                    <span className="bg-purple-100 text-purple-700 text-[10px] px-1.5 py-0.5 rounded-md font-bold flex items-center gap-0.5" title="Creada por Admin">
                                                         <ShieldCheck size={10}/> Admin
                                                     </span>
                                                 )}
@@ -310,7 +306,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNewRequest, onEditRequest
                 <div>
                   <div className="flex items-center gap-2">
                     <p className="font-semibold text-slate-700 text-sm">{req.label}</p>
-                    {req.createdByAdmin && <ShieldCheck size={12} className="text-purple-500" title="Creada por Admin"/>}
+                    {req.createdByAdmin && (
+                        <span title="Creada por Admin">
+                            <ShieldCheck size={12} className="text-purple-500"/>
+                        </span>
+                    )}
                   </div>
                   <p className="text-xs text-slate-500">{new Date(req.startDate).toLocaleDateString()} {req.hours ? `(${req.hours}h)` : ''}</p>
                 </div>
@@ -355,3 +355,4 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNewRequest, onEditRequest
 };
 
 export default Dashboard;
+    
