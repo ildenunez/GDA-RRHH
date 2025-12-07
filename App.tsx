@@ -1,12 +1,6 @@
-
-
-
-
-
-
 import React, { useState, useEffect } from 'react';
 import { store } from './services/store';
-import { User, Role, LeaveTypeConfig, Department, LeaveRequest, OvertimeUsage, EmailTemplate, ShiftType, ShiftSegment } from './types';
+import { User, Role, LeaveTypeConfig, Department, LeaveRequest, OvertimeUsage, EmailTemplate, ShiftType, ShiftSegment, Holiday } from './types';
 import Dashboard from './components/Dashboard';
 import { Approvals, UserManagement } from './components/Management';
 import CalendarView from './components/CalendarView';
@@ -213,6 +207,7 @@ const AdminSettings = ({ onViewRequest }: { onViewRequest: (req: LeaveRequest) =
 
     // Holidays State
     const [newHoliday, setNewHoliday] = useState({ date: '', name: '' });
+    const [editingHolidayId, setEditingHolidayId] = useState<string | null>(null);
 
     // Communications Sub-Tabs
     const [commTab, setCommTab] = useState<'templates' | 'smtp' | 'message'>('templates');
@@ -333,6 +328,24 @@ const AdminSettings = ({ onViewRequest }: { onViewRequest: (req: LeaveRequest) =
         setNewHoliday({ date: '', name: '' });
     };
 
+    const handleEditHoliday = (holiday: Holiday) => {
+        setNewHoliday({ date: holiday.date, name: holiday.name });
+        setEditingHolidayId(holiday.id);
+    };
+
+    const handleUpdateHoliday = async () => {
+        if (!editingHolidayId || !newHoliday.date || !newHoliday.name) return;
+        await store.updateHoliday(editingHolidayId, newHoliday.date, newHoliday.name);
+        setConfig({...store.config});
+        setNewHoliday({ date: '', name: '' });
+        setEditingHolidayId(null);
+    };
+
+    const handleCancelEditHoliday = () => {
+        setNewHoliday({ date: '', name: '' });
+        setEditingHolidayId(null);
+    };
+
     const handleDeleteHoliday = async (id: string) => {
         if (confirm('¿Borrar festivo?')) {
             await store.deleteHoliday(id);
@@ -427,12 +440,15 @@ const AdminSettings = ({ onViewRequest }: { onViewRequest: (req: LeaveRequest) =
                                             <div className="font-bold text-sm">{new Date(h.date).toLocaleDateString()}</div>
                                             <div className="text-xs text-red-500">{h.name}</div>
                                         </div>
-                                        <button onClick={() => handleDeleteHoliday(h.id)} className="text-slate-400 hover:text-red-500 p-1"><Trash size={16}/></button>
+                                        <div className="flex gap-2">
+                                            <button onClick={() => handleEditHoliday(h)} className="text-slate-400 hover:text-blue-500 p-1"><Edit2 size={16}/></button>
+                                            <button onClick={() => handleDeleteHoliday(h.id)} className="text-slate-400 hover:text-red-500 p-1"><Trash size={16}/></button>
+                                        </div>
                                     </div>
                                 ))}
                             </div>
                             <div className="bg-slate-50 p-6 rounded-xl border">
-                                <h4 className="font-bold mb-4 text-sm uppercase">Añadir Festivo</h4>
+                                <h4 className="font-bold mb-4 text-sm uppercase">{editingHolidayId ? 'Editar Festivo' : 'Añadir Festivo'}</h4>
                                 <div className="space-y-3">
                                     <div>
                                         <label className="text-xs font-bold text-slate-500">Fecha</label>
@@ -442,7 +458,14 @@ const AdminSettings = ({ onViewRequest }: { onViewRequest: (req: LeaveRequest) =
                                         <label className="text-xs font-bold text-slate-500">Nombre Festividad</label>
                                         <input type="text" className="w-full p-2 border rounded text-sm" placeholder="Ej: Navidad" value={newHoliday.name} onChange={e => setNewHoliday({...newHoliday, name: e.target.value})}/>
                                     </div>
-                                    <button onClick={handleAddHoliday} className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm w-full font-bold">Añadir Festivo</button>
+                                    <div className="flex gap-2">
+                                        {editingHolidayId && (
+                                            <button onClick={handleCancelEditHoliday} className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-4 py-2 rounded-lg text-sm font-bold">Cancelar</button>
+                                        )}
+                                        <button onClick={editingHolidayId ? handleUpdateHoliday : handleAddHoliday} className="flex-1 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-bold">
+                                            {editingHolidayId ? 'Actualizar' : 'Añadir'}
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         </div>

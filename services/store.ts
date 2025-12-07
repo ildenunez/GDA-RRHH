@@ -1,11 +1,3 @@
-
-
-
-
-
-
-
-
 import { User, Role, Department, LeaveRequest, RequestStatus, AppConfig, Notification, LeaveTypeConfig, EmailTemplate, ShiftType, ShiftAssignment, Holiday } from '../types';
 import { supabase } from './supabase';
 
@@ -729,6 +721,14 @@ class Store {
       const { data } = await supabase.from('holidays').insert({ date, name }).select().single();
       if (data) {
           this.config.holidays.push({ id: data.id, date: data.date, name: data.name });
+      }
+  }
+
+  async updateHoliday(id: string, date: string, name: string) {
+      await supabase.from('holidays').update({ date, name }).eq('id', id);
+      const idx = this.config.holidays.findIndex(h => h.id === id);
+      if (idx !== -1) {
+          this.config.holidays[idx] = { id, date, name };
       }
   }
 
