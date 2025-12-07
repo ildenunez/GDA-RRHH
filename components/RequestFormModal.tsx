@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+
+import React, { useState, useEffect, useMemo } from 'react';
 import { User, LeaveRequest, OvertimeUsage, RequestStatus, Role } from '../types';
 import { store } from '../services/store';
-import { X, Clock, Loader2, User as UserIcon } from 'lucide-react';
+import { X, Clock, Loader2, User as UserIcon, CalendarDays } from 'lucide-react';
 
 interface RequestFormModalProps {
   onClose: () => void;
@@ -93,6 +94,25 @@ const RequestFormModal: React.FC<RequestFormModalProps> = ({ onClose, user, targ
       const total = Object.values(newMap).reduce((sum: number, val: number) => sum + val, 0);
       setHours(total);
   };
+
+  // --- CALCULO DE DÍAS EN TIEMPO REAL ---
+  const dayCount = useMemo(() => {
+      if (activeTab !== 'absence' || !startDate) return 0;
+      
+      const start = new Date(startDate);
+      const end = endDate ? new Date(endDate) : start;
+      
+      // Reset hours to ensure clean day diff
+      start.setHours(0,0,0,0);
+      end.setHours(0,0,0,0);
+
+      if (end < start) return 0;
+
+      const diffTime = Math.abs(end.getTime() - start.getTime());
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+      
+      return diffDays;
+  }, [startDate, endDate, activeTab]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -197,7 +217,7 @@ const RequestFormModal: React.FC<RequestFormModalProps> = ({ onClose, user, targ
            
            <div className="grid grid-cols-2 gap-4">
              <div>
-               <label className="block text-sm font-medium text-slate-700 mb-1">Fecha</label>
+               <label className="block text-sm font-medium text-slate-700 mb-1">Fecha Inicio</label>
                <input 
                  type="date" 
                  required 
@@ -233,6 +253,19 @@ const RequestFormModal: React.FC<RequestFormModalProps> = ({ onClose, user, targ
                 </div>
              )}
            </div>
+
+           {/* CONTADOR DE DÍAS (SOLO AUSENCIA) */}
+           {activeTab === 'absence' && dayCount > 0 && (
+               <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 flex items-center justify-center gap-3 animate-scale-in">
+                   <div className="bg-white p-2 rounded-full shadow-sm text-blue-600">
+                       <CalendarDays size={20} />
+                   </div>
+                   <div>
+                       <p className="text-xs text-blue-600 uppercase font-bold tracking-wide">Duración Total</p>
+                       <p className="text-lg font-bold text-slate-800">{dayCount} {dayCount === 1 ? 'día' : 'días'}</p>
+                   </div>
+               </div>
+           )}
 
            {isConsumptionType && !editingRequest && (
                <div className="border border-slate-200 rounded-xl p-4 bg-slate-50">

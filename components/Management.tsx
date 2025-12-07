@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo } from 'react';
 import { User, RequestStatus, Role, LeaveRequest } from '../types';
 import { store } from '../services/store';
@@ -22,6 +23,17 @@ export const Approvals: React.FC<{ user: User, onViewRequest: (req: LeaveRequest
       await store.updateRequestStatus(confirmAction.reqId, confirmAction.status, user.id, adminComment);
       setPending(store.getPendingApprovalsForUser(user.id));
       setConfirmAction(null);
+  };
+
+  const getDurationString = (req: LeaveRequest) => {
+      if (req.hours && req.hours > 0) return `${req.hours}h`;
+      const start = new Date(req.startDate);
+      const end = req.endDate ? new Date(req.endDate) : start;
+      start.setHours(0,0,0,0);
+      end.setHours(0,0,0,0);
+      const diff = Math.abs(end.getTime() - start.getTime());
+      const days = Math.ceil(diff / (1000 * 3600 * 24)) + 1; 
+      return `${days} día${days !== 1 ? 's' : ''}`;
   };
 
   const absences = pending.filter(r => !store.isOvertimeRequest(r.typeId));
@@ -51,8 +63,13 @@ export const Approvals: React.FC<{ user: User, onViewRequest: (req: LeaveRequest
                         <h4 className="font-bold text-slate-800 group-hover:text-blue-600 transition-colors flex items-center gap-2">
                             {requester?.name} <ExternalLink size={12} className="opacity-0 group-hover:opacity-100"/>
                         </h4>
-                        <p className="text-sm text-slate-500 font-medium">{req.label} {req.hours ? `• ${req.hours}h` : ''}</p>
-                        <p className="text-xs text-slate-500 mt-0.5">
+                        <div className="flex items-center gap-2 mt-0.5">
+                            <p className="text-sm text-slate-500 font-medium">{req.label}</p>
+                            <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-bold border border-slate-200">
+                                {getDurationString(req)}
+                            </span>
+                        </div>
+                        <p className="text-xs text-slate-500 mt-1">
                             {new Date(req.startDate).toLocaleDateString()} 
                             {req.endDate && ` - ${new Date(req.endDate).toLocaleDateString()}`}
                         </p>
@@ -307,6 +324,17 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
 
   const getDeptName = (id: string) => store.departments.find(d => d.id === id)?.name || id;
 
+  const getDurationString = (req: LeaveRequest) => {
+      if (req.hours && req.hours > 0) return `${req.hours}h`;
+      const start = new Date(req.startDate);
+      const end = req.endDate ? new Date(req.endDate) : start;
+      start.setHours(0,0,0,0);
+      end.setHours(0,0,0,0);
+      const diff = Math.abs(end.getTime() - start.getTime());
+      const days = Math.ceil(diff / (1000 * 3600 * 24)) + 1; 
+      return `${days} día${days !== 1 ? 's' : ''}`;
+  };
+
   const isCreating = editingUser && editingUser.id === '';
   const isAdmin = currentUser.role === Role.ADMIN;
 
@@ -486,6 +514,7 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
                                 <th className="px-6 py-3">Empleado</th>
                                 <th className="px-6 py-3">Tipo</th>
                                 <th className="px-6 py-3">Fechas</th>
+                                <th className="px-6 py-3">Duración</th>
                                 <th className="px-6 py-3">Estado</th>
                                 {isAdmin && <th className="px-6 py-3 text-right">Acciones</th>}
                             </tr>
@@ -500,7 +529,9 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
                                         <td className="px-6 py-3 text-slate-500">
                                             {new Date(req.startDate).toLocaleDateString()}
                                             {req.endDate && ` - ${new Date(req.endDate).toLocaleDateString()}`}
-                                            {req.hours && ` (${req.hours}h)`}
+                                        </td>
+                                        <td className="px-6 py-3 font-mono text-xs font-bold text-slate-600">
+                                            {getDurationString(req)}
                                         </td>
                                         <td className="px-6 py-3">
                                             <span className={`px-2 py-1 rounded-full text-xs font-bold ${

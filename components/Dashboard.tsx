@@ -24,6 +24,17 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNewRequest, onEditRequest
       }
   };
 
+  const getDurationString = (req: LeaveRequest) => {
+      if (req.hours && req.hours > 0) return `${req.hours}h`;
+      const start = new Date(req.startDate);
+      const end = req.endDate ? new Date(req.endDate) : start;
+      start.setHours(0,0,0,0);
+      end.setHours(0,0,0,0);
+      const diff = Math.abs(end.getTime() - start.getTime());
+      const days = Math.ceil(diff / (1000 * 3600 * 24)) + 1; 
+      return `${days} día${days !== 1 ? 's' : ''}`;
+  };
+
   const stats = [
     { 
       id: 'days',
@@ -312,7 +323,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNewRequest, onEditRequest
                         </span>
                     )}
                   </div>
-                  <p className="text-xs text-slate-500">{new Date(req.startDate).toLocaleDateString()} {req.hours ? `(${req.hours}h)` : ''}</p>
+                  <p className="text-xs text-slate-500">{new Date(req.startDate).toLocaleDateString()} {req.endDate && ` - ${new Date(req.endDate).toLocaleDateString()}`}</p>
+                  <div className="mt-1">
+                      <span className="text-[10px] bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded font-bold">
+                          {getDurationString(req)}
+                      </span>
+                  </div>
                 </div>
                 <div className="flex items-center gap-2">
                     <span className={`px-2 py-1 rounded-full text-xs font-medium flex items-center gap-1
@@ -355,4 +371,3 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNewRequest, onEditRequest
 };
 
 export default Dashboard;
-    

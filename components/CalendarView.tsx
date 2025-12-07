@@ -1,5 +1,6 @@
+
 import React, { useState, useMemo } from 'react';
-import { User, RequestStatus, Role } from '../types';
+import { User, RequestStatus, Role, ShiftType } from '../types';
 import { store } from '../services/store';
 import { ChevronLeft, ChevronRight, Filter, AlertTriangle, Palmtree, Thermometer, Briefcase, User as UserIcon, Clock, Star, Check } from 'lucide-react';
 
@@ -31,6 +32,27 @@ const CalendarView: React.FC<CalendarViewProps> = ({ user }) => {
       return [];
   }, [user]);
 
+  // Determine relevant users for current view (to show team shifts)
+  const usersInScope = useMemo(() => {
+      if (!isSupervisorOrAdmin) return [user];
+      
+      let relevantUsers = store.users;
+      
+      // Filter by Role
+      if (user.role === Role.SUPERVISOR) {
+          const myDepts = store.departments.filter(d => d.supervisorIds.includes(user.id)).map(d => d.id);
+          relevantUsers = relevantUsers.filter(u => myDepts.includes(u.departmentId));
+      }
+
+      // Filter by Selected Department in Dropdown
+      if (selectedDeptId) {
+          relevantUsers = relevantUsers.filter(u => u.departmentId === selectedDeptId);
+      }
+      
+      return relevantUsers.sort((a,b) => a.name.localeCompare(b.name));
+  }, [user, isSupervisorOrAdmin, selectedDeptId]);
+
+
   const requests = store.getCalendarRequests(user.id, selectedDeptId || undefined);
 
   const prevMonth = () => setCurrentDate(new Date(year, month - 1, 1));
@@ -60,19 +82,26 @@ const CalendarView: React.FC<CalendarViewProps> = ({ user }) => {
     const holiday = store.config.holidays.find(h => h.date === dateStr);
 
     // Lógica de Turno:
-    // Si es Supervisor/Admin, mostramos el turno siempre (no se oculta).
-    // Si es Trabajador, ocultamos el turno si tiene una ausencia APROBADA (vacaciones, etc).
-    let myShift = store.getShiftForUserDate(user.id, dateStr);
+    let myShift: ShiftType | undefined = undefined;
+    let teamShifts: { userName: string, shift: ShiftType }[] = [];
 
     if (!isSupervisorOrAdmin) {
+        // Trabajador: Solo su turno, oculto si hay ausencia aprobada
+        myShift = store.getShiftForUserDate(user.id, dateStr);
         const myAbsences = absenceEvents.filter(r => r.userId === user.id);
         const hasApprovedAbsence = myAbsences.some(r => r.status === RequestStatus.APPROVED && !store.isOvertimeRequest(r.typeId));
         if (hasApprovedAbsence) {
             myShift = undefined;
         }
+    } else {
+        // Supervisor/Admin: Turnos de TODOS los usuarios en scope
+        teamShifts = usersInScope.map(u => {
+            const s = store.getShiftForUserDate(u.id, dateStr);
+            return s ? { userName: u.name.split(' ')[0], shift: s } : null;
+        }).filter(Boolean) as { userName: string, shift: ShiftType }[];
     }
 
-    return { absences: absenceEvents, shift: myShift, holiday };
+    return { absences: absenceEvents, shift: myShift, teamShifts, holiday };
   };
 
   const getUserName = (id: string) => store.users.find(u => u.id === id)?.name.split(' ')[0] || 'User';
@@ -87,7 +116,8 @@ const CalendarView: React.FC<CalendarViewProps> = ({ user }) => {
           const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
           
           const activeRequests = store.requests.filter(req => {
-              if (req.status !== RequestStatus.APPROVED || store.isOvertimeRequest(req.typeId)) return false;
+              // CHANGE: Conflict detection now includes PENDING requests
+              if ((req.status !== RequestStatus.APPROVED && req.status !== RequestStatus.PENDING) || store.isOvertimeRequest(req.typeId)) return false;
               const start = req.startDate.split('T')[0];
               const end = req.endDate ? req.endDate.split('T')[0] : start;
               return dateStr >= start && dateStr <= end;
@@ -106,7 +136,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({ user }) => {
 
                   if (!deptMap[u.departmentId]) deptMap[u.departmentId] = [];
                   if (!deptMap[u.departmentId].includes(u.name)) {
-                      deptMap[u.departmentId].push(u.name);
+                      deptMap[u.departmentId].push(`${u.name} (${req.status === RequestStatus.PENDING ? '?' : 'OK'})`);
                   }
               }
           });
@@ -173,7 +203,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({ user }) => {
             {/* Days */}
             {Array.from({ length: daysInMonth }).map((_, i) => {
                 const day = i + 1;
-                const { absences, shift, holiday } = getEventsForDay(day);
+                const { absences, shift, teamShifts, holiday } = getEventsForDay(day);
                 const isToday = new Date().toDateString() === new Date(year, month, day).toDateString();
                 
                 // Priorizar la visualización: Festivo > Ausencia Aprobada > Turno > Ausencia Pendiente/Rechazada
@@ -190,50 +220,52 @@ const CalendarView: React.FC<CalendarViewProps> = ({ user }) => {
                     </div>
                     
                     {/* CONTENIDO CENTRAL */}
-                    <div className="flex-1 flex flex-col justify-center items-center z-10 gap-1 w-full">
+                    <div className="flex-1 flex flex-col justify-start z-10 gap-1 w-full overflow-hidden">
                         
                         {/* --- MODO SUPERVISOR/ADMIN: LISTADO DETALLADO --- */}
                         {isSupervisorOrAdmin ? (
-                            <>
+                            <div className="overflow-y-auto no-scrollbar space-y-1 w-full h-full">
                                 {holiday && (
-                                    <div className="text-xs font-bold text-red-600 uppercase mb-1 flex items-center gap-1 justify-center">
+                                    <div className="text-xs font-bold text-red-600 uppercase mb-1 flex items-center gap-1 justify-center bg-red-100/50 rounded p-1">
                                         <Star size={10} fill="currentColor"/> {holiday.name}
                                     </div>
                                 )}
                                 
                                 {/* Lista de Ausencias (Texto) */}
-                                <div className="flex-1 w-full overflow-y-auto space-y-1 no-scrollbar">
-                                    {absences.length === 0 && !shift && !holiday && <span className="text-slate-200 text-xs flex h-full items-center justify-center">Libre</span>}
-                                    {absences.map((ev, idx) => (
-                                        <div 
-                                            key={ev.id + idx} 
-                                            className={`text-[9px] px-1.5 py-0.5 rounded border-l-2 truncate font-medium flex items-center gap-1
-                                            ${ev.status === RequestStatus.APPROVED ? 'bg-green-50 text-green-700 border-green-500' :
-                                              ev.status === RequestStatus.PENDING ? 'bg-yellow-50 text-yellow-700 border-yellow-500' : 
-                                              ev.status === RequestStatus.REJECTED ? 'bg-red-50 text-red-700 border-red-500 line-through opacity-60' : ''}
-                                            `}
-                                            title={`${getUserName(ev.userId)}: ${ev.label}`}
-                                        >
-                                            <span className="truncate"><strong>{getUserName(ev.userId)}</strong>: {ev.label}</span>
-                                        </div>
-                                    ))}
-                                </div>
-
-                                {/* Barra de Turno (Mi Turno) */}
-                                {shift && (
+                                {absences.map((ev, idx) => (
                                     <div 
-                                        className="w-full rounded text-white px-1.5 py-0.5 text-[9px] font-bold flex justify-between items-center mt-auto"
-                                        style={{ backgroundColor: shift.color }}
-                                        title={`Mi Turno: ${shift.name}`}
+                                        key={ev.id + idx} 
+                                        className={`text-[9px] px-1.5 py-0.5 rounded border-l-2 truncate font-medium flex items-center gap-1
+                                        ${ev.status === RequestStatus.APPROVED ? 'bg-green-50 text-green-700 border-green-500' :
+                                            ev.status === RequestStatus.PENDING ? 'bg-yellow-50 text-yellow-700 border-yellow-500' : 
+                                            ev.status === RequestStatus.REJECTED ? 'bg-red-50 text-red-700 border-red-500 line-through opacity-60' : ''}
+                                        `}
+                                        title={`${getUserName(ev.userId)}: ${ev.label}`}
                                     >
-                                        <span className="truncate">{shift.name}</span>
-                                        <span className="opacity-80 font-mono">{shift.segments[0].start}</span>
+                                        <span className="truncate"><strong>{getUserName(ev.userId)}</strong>: {ev.label}</span>
+                                    </div>
+                                ))}
+
+                                {/* Lista de Turnos (Equipo) */}
+                                {teamShifts.length > 0 && (
+                                    <div className="border-t border-slate-100 pt-1 mt-1">
+                                        {teamShifts.map((ts, idx) => (
+                                            <div 
+                                                key={idx}
+                                                className="flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded mb-0.5"
+                                                style={{ backgroundColor: ts.shift.color + '20', color: ts.shift.color }} // 20 hex alpha
+                                            >
+                                                <div className="w-1.5 h-1.5 rounded-full" style={{backgroundColor: ts.shift.color}}></div>
+                                                <span className="font-bold truncate max-w-[50px]">{ts.userName}</span>
+                                                <span className="opacity-80 ml-auto">{ts.shift.name}</span>
+                                            </div>
+                                        ))}
                                     </div>
                                 )}
-                            </>
+                            </div>
                         ) : (
                             /* --- MODO TRABAJADOR: VISUAL / WOW --- */
-                            <>
+                            <div className="flex-1 flex flex-col justify-center items-center w-full">
                                 {/* CASO 1: FESTIVO */}
                                 {holiday && (
                                     <div className="text-center">
@@ -289,7 +321,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({ user }) => {
                                         Libre
                                     </div>
                                 )}
-                            </>
+                            </div>
                         )}
                     </div>
                 </div>
