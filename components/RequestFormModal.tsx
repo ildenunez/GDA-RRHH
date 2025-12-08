@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { User, LeaveRequest, OvertimeUsage, RequestStatus, Role } from '../types';
 import { store } from '../services/store';
-import { X, Clock, Loader2, User as UserIcon, CalendarDays } from 'lucide-react';
+import { X, Clock, Loader2, User as UserIcon, CalendarDays, Gift } from 'lucide-react';
 
 interface RequestFormModalProps {
   onClose: () => void;
@@ -120,7 +120,7 @@ const RequestFormModal: React.FC<RequestFormModalProps> = ({ onClose, user, targ
 
     let finalOvertimeUsage: OvertimeUsage[] | undefined = undefined;
     
-    if (activeTab === 'overtime' && typeId !== 'overtime_earn') {
+    if (activeTab === 'overtime' && typeId !== 'overtime_earn' && typeId !== 'festivo_trabajado') {
         finalOvertimeUsage = Object.entries(usageMap).map(([id, hoursUsed]) => ({
             requestId: id,
             hoursUsed: hoursUsed as number
@@ -146,7 +146,8 @@ const RequestFormModal: React.FC<RequestFormModalProps> = ({ onClose, user, targ
     onClose();
   };
 
-  const isConsumptionType = activeTab === 'overtime' && typeId !== 'overtime_earn';
+  const isConsumptionType = activeTab === 'overtime' && typeId !== 'overtime_earn' && typeId !== 'festivo_trabajado';
+  const isWorkedHoliday = typeId === 'festivo_trabajado';
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
@@ -176,7 +177,7 @@ const RequestFormModal: React.FC<RequestFormModalProps> = ({ onClose, user, targ
                 onClick={() => { setActiveTab('overtime'); setTypeId('overtime_earn'); setUsageMap({}); setHours(0); }}
                 className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'overtime' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'} ${editingRequest ? 'opacity-50' : ''}`}
             >
-                Horas Extra
+                Gestión Horas / Festivos
             </button>
         </div>
 
@@ -209,6 +210,7 @@ const RequestFormModal: React.FC<RequestFormModalProps> = ({ onClose, user, targ
                      }}
                  >
                      <option value="overtime_earn">Registrar Horas Realizadas</option>
+                     <option value="festivo_trabajado">Festivo Trabajado (+1 día / +4h)</option>
                      <option value="overtime_spend_days">Canjear por Días Libres</option>
                      <option value="overtime_pay">Solicitar Cobro</option>
                  </select>
@@ -216,7 +218,7 @@ const RequestFormModal: React.FC<RequestFormModalProps> = ({ onClose, user, targ
            )}
            
            <div className="grid grid-cols-2 gap-4">
-             <div>
+             <div className={`${isWorkedHoliday ? 'col-span-2' : ''}`}>
                <label className="block text-sm font-medium text-slate-700 mb-1">Fecha Inicio</label>
                <input 
                  type="date" 
@@ -240,7 +242,7 @@ const RequestFormModal: React.FC<RequestFormModalProps> = ({ onClose, user, targ
                </div>
              )}
              
-             {activeTab === 'overtime' && (
+             {activeTab === 'overtime' && !isWorkedHoliday && (
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Total Horas</label>
                   <input 
@@ -253,6 +255,21 @@ const RequestFormModal: React.FC<RequestFormModalProps> = ({ onClose, user, targ
                 </div>
              )}
            </div>
+
+           {/* Mensaje Informativo para Festivo Trabajado */}
+           {isWorkedHoliday && (
+               <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex items-center gap-4 animate-scale-in">
+                   <div className="bg-white p-2 rounded-full shadow-sm text-green-600">
+                       <Gift size={24} />
+                   </div>
+                   <div>
+                       <p className="text-xs text-green-700 uppercase font-bold tracking-wide">Compensación Automática</p>
+                       <p className="text-sm font-medium text-slate-800">
+                           Al aprobarse, se sumará <strong>1 día de vacaciones</strong> y <strong>4 horas extra</strong> a tu saldo.
+                       </p>
+                   </div>
+               </div>
+           )}
 
            {/* CONTADOR DE DÍAS (SOLO AUSENCIA) */}
            {activeTab === 'absence' && dayCount > 0 && (

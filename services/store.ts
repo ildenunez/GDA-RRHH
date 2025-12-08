@@ -227,7 +227,7 @@ class Store {
   }
 
   isOvertimeRequest(typeId: string): boolean {
-      return typeId.startsWith('overtime_');
+      return typeId.startsWith('overtime_') || typeId === 'festivo_trabajado';
   }
 
   getAvailableOvertimeRecords(userId: string) {
@@ -339,7 +339,14 @@ class Store {
     const isCreatedByAdmin = !!targetUserId && targetUserId !== this.currentUser.id;
 
     const leaveType = this.config.leaveTypes.find(t => t.id === req.typeId);
-    const label = leaveType ? leaveType.label : (req.typeId === 'overtime_earn' ? 'Horas Extra Generadas' : req.typeId === 'overtime_pay' ? 'Cobro Horas' : 'Canje Días por Horas');
+    let label = '';
+    
+    if (leaveType) label = leaveType.label;
+    else if (req.typeId === 'overtime_earn') label = 'Horas Extra Generadas';
+    else if (req.typeId === 'overtime_pay') label = 'Cobro Horas';
+    else if (req.typeId === 'overtime_spend_days') label = 'Canje Días por Horas';
+    else if (req.typeId === 'festivo_trabajado') label = 'Festivo Trabajado';
+    else label = 'Solicitud';
     
     const newReqPayload = {
       user_id: userId,
@@ -415,6 +422,10 @@ class Store {
               } else if (req.typeId === 'overtime_earn') {
                    // Si generó horas, se las quitamos
                    newOvertime -= (req.hours || 0);
+              } else if (req.typeId === 'festivo_trabajado') {
+                   // Si trabajó un festivo (generó 1 día y 4 horas), se los quitamos
+                   newDays -= 1;
+                   newOvertime -= 4;
               } else if (req.typeId === 'overtime_spend_days') {
                    // Si canjeó días (gastó horas), se las devolvemos y le quitamos los días ganados
                    newOvertime += (req.hours || 0);
@@ -474,7 +485,12 @@ class Store {
       } 
       else if (req.typeId === 'overtime_earn') {
         newOvertime += (req.hours || 0);
-      } 
+      }
+      else if (req.typeId === 'festivo_trabajado') {
+          // Festivo Trabajado suma 1 día y 4 horas
+          newDays += 1;
+          newOvertime += 4;
+      }
       else if (req.typeId === 'overtime_spend_days' || req.typeId === 'overtime_pay') {
          newOvertime -= (req.hours || 0);
          if (req.typeId === 'overtime_spend_days') newDays += ((req.hours || 0) / 8); 
