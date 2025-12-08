@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { store } from './services/store';
 import { User, Role, LeaveTypeConfig, Department, LeaveRequest, OvertimeUsage, EmailTemplate, ShiftType, ShiftSegment, Holiday } from './types';
@@ -8,6 +9,7 @@ import NotificationsView from './components/NotificationsView';
 import ProfileView from './components/ProfileView';
 import RequestDetailModal from './components/RequestDetailModal';
 import RequestFormModal from './components/RequestFormModal';
+import HelpView from './components/HelpView';
 import { 
   LayoutDashboard, 
   CalendarDays, 
@@ -36,7 +38,8 @@ import {
   Server,
   MessageSquare,
   Search,
-  UserCircle
+  UserCircle,
+  HelpCircle
 } from 'lucide-react';
 
 const LOGO_URL = "https://termosycalentadoresgranada.com/wp-content/uploads/2025/08/https___cdn.evbuc_.com_images_677236879_73808960223_1_original.png";
@@ -658,6 +661,9 @@ export default function App() {
               <NavItem id="settings" icon={Settings} label="Administración" />
             </>
           )}
+           <div className="pt-4 pb-2 px-4 border-t border-slate-800 mt-4">
+              <NavItem id="help" icon={HelpCircle} label="Ayuda" />
+           </div>
         </nav>
 
         <div className="absolute bottom-0 w-full p-4 border-t border-slate-800 bg-slate-900">
@@ -677,7 +683,7 @@ export default function App() {
       <main className="flex-1 md:ml-64 flex flex-col h-screen overflow-hidden">
         <header className="h-16 bg-white border-b border-slate-100 flex items-center justify-between px-6 z-30">
           <button onClick={() => setMobileMenuOpen(true)} className="md:hidden text-slate-600"><Menu/></button>
-          <h2 className="text-lg font-semibold text-slate-800 capitalize">{activeTab === 'settings' ? 'Administración' : activeTab === 'team' ? 'Mi Equipo' : activeTab === 'profile' ? 'Mi Perfil' : activeTab}</h2>
+          <h2 className="text-lg font-semibold text-slate-800 capitalize">{activeTab === 'settings' ? 'Administración' : activeTab === 'team' ? 'Mi Equipo' : activeTab === 'profile' ? 'Mi Perfil' : activeTab === 'help' ? 'Centro de Ayuda' : activeTab}</h2>
           <div className="flex items-center gap-4">
             <button onClick={() => {setModalInitialTab('absence'); setEditingRequest(null); setShowRequestModal(true);}} className="hidden md:flex bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium items-center gap-2 shadow-lg shadow-blue-500/20"><Plus size={16} /> Nueva Solicitud</button>
             <div className="relative cursor-pointer group"><Bell className="text-slate-400 group-hover:text-slate-600" />{store.notifications.length > 0 && <span className="absolute top-0 right-0 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white"></span>}</div>
@@ -692,6 +698,7 @@ export default function App() {
            {activeTab === 'approvals' && isSupervisor && <Approvals user={user} onViewRequest={handleViewRequest} />}
            {activeTab === 'team' && isSupervisor && <UserManagement currentUser={user} onViewRequest={handleViewRequest} />}
            {activeTab === 'settings' && isAdmin && <AdminSettings onViewRequest={handleViewRequest} />}
+           {activeTab === 'help' && <HelpView />}
         </div>
         
         {showRequestModal && <RequestFormModal onClose={() => setShowRequestModal(false)} user={user} initialTab={modalInitialTab} editingRequest={editingRequest} />}
