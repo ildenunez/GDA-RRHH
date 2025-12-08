@@ -122,6 +122,23 @@ export interface Holiday {
   name: string;
 }
 
+// --- EPIS (PPE) ---
+export interface PPEType {
+  id: string;
+  name: string;
+  sizes: string[];
+}
+
+export interface PPERequest {
+  id: string;
+  userId: string;
+  typeId: string;
+  size: string;
+  status: 'PENDIENTE' | 'ENTREGADO';
+  createdAt: string;
+  deliveryDate?: string;
+}
+
 export interface AppConfig {
   leaveTypes: LeaveTypeConfig[];
   emailTemplates: EmailTemplate[];
@@ -129,6 +146,8 @@ export interface AppConfig {
   shiftTypes: ShiftType[]; // New proper shift structure
   shiftAssignments: ShiftAssignment[]; // Loaded assignments
   holidays: Holiday[]; // Global holidays
+  ppeTypes: PPEType[];
+  ppeRequests: PPERequest[];
   smtpSettings: {
     host: string;
     port: number;

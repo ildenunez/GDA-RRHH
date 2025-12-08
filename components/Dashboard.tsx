@@ -2,8 +2,9 @@
 import React, { useState } from 'react';
 import { User, RequestStatus, LeaveRequest } from '../types';
 import { store } from '../services/store';
-import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { Calendar, Clock, AlertCircle, CheckCircle, XCircle, Sun, PlusCircle, Timer, ChevronRight, ArrowLeft, History, Edit2, Trash2, Briefcase, ShieldCheck } from 'lucide-react';
+import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, Cell, Legend, YAxis, CartesianGrid } from 'recharts';
+import { Calendar, Clock, AlertCircle, CheckCircle, XCircle, Sun, PlusCircle, Timer, ChevronRight, ArrowLeft, History, Edit2, Trash2, Briefcase, ShieldCheck, HardHat } from 'lucide-react';
+import PPERequestModal from './PPERequestModal';
 
 interface DashboardProps {
   user: User;
@@ -14,6 +15,8 @@ interface DashboardProps {
 
 const Dashboard: React.FC<DashboardProps> = ({ user, onNewRequest, onEditRequest, onViewRequest }) => {
   const [detailView, setDetailView] = useState<'none' | 'days' | 'hours'>('none');
+  const [showPPEModal, setShowPPEModal] = useState(false);
+  
   const requests = store.getMyRequests();
   const nextShiftData = store.getNextShift(user.id);
 
@@ -65,12 +68,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNewRequest, onEditRequest
     },
   ];
 
-  // Calcular horas extra reales por mes del año actual
   const currentYear = new Date().getFullYear();
-  const monthlyOvertime = Array(12).fill(0);
 
+  // --- CALCULO GRÁFICA HORAS EXTRA ---
+  const monthlyOvertime = Array(12).fill(0);
   requests.forEach(req => {
-      // Solo contar horas GENERADAS (earn) y APROBADAS
       if (req.typeId === 'overtime_earn' && req.status === RequestStatus.APPROVED) {
           const d = new Date(req.startDate);
           if (d.getFullYear() === currentYear) {
@@ -79,7 +81,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNewRequest, onEditRequest
       }
   });
 
-  const chartData = [
+  const chartDataOvertime = [
     { name: 'Ene', hours: monthlyOvertime[0] },
     { name: 'Feb', hours: monthlyOvertime[1] },
     { name: 'Mar', hours: monthlyOvertime[2] },
@@ -93,6 +95,41 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNewRequest, onEditRequest
     { name: 'Nov', hours: monthlyOvertime[10] },
     { name: 'Dic', hours: monthlyOvertime[11] },
   ];
+
+  // --- CALCULO GRÁFICA DÍAS CONSUMIDOS (APROBADOS vs PENDIENTES) ---
+  const monthlyAbsenceStats = Array.from({ length: 12 }, (_, i) => ({
+      name: ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'][i],
+      approved: 0,
+      pending: 0
+  }));
+
+  requests.forEach(req => {
+      // Filtrar: Solo ausencias (no horas extra) y que resten días o sean vacaciones
+      // Consideramos "Consumido" si es APPROVED o PENDING
+      const isAbsence = !store.isOvertimeRequest(req.typeId);
+      
+      if (isAbsence && (req.status === RequestStatus.APPROVED || req.status === RequestStatus.PENDING)) {
+          // Iterar día a día para asignar al mes correcto (por si cruza meses)
+          let current = new Date(req.startDate);
+          const end = new Date(req.endDate || req.startDate);
+          // Normalizar horas
+          current.setHours(0,0,0,0);
+          end.setHours(0,0,0,0);
+
+          while (current <= end) {
+              if (current.getFullYear() === currentYear) {
+                  const month = current.getMonth();
+                  if (req.status === RequestStatus.APPROVED) {
+                      monthlyAbsenceStats[month].approved += 1;
+                  } else {
+                      monthlyAbsenceStats[month].pending += 1;
+                  }
+              }
+              // Avanzar un día
+              current.setDate(current.getDate() + 1);
+          }
+      }
+  });
 
   // VISTA DE DETALLE (DRILL DOWN)
   if (detailView !== 'none') {
@@ -162,7 +199,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNewRequest, onEditRequest
                                                 <div className="font-medium text-slate-800">{req.label}</div>
                                                 {req.createdByAdmin && (
                                                     <span className="bg-purple-100 text-purple-700 text-[10px] px-1.5 py-0.5 rounded-md font-bold flex items-center gap-0.5" title="Creada por Admin">
-                                                        <ShieldCheck size={10}/> Admin
+                                                        <span title="ShieldCheck Icon"><ShieldCheck size={10}/></span> Admin
                                                     </span>
                                                 )}
                                             </div>
@@ -243,6 +280,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNewRequest, onEditRequest
                 <Timer size={18}/>
                 Gestión Horas
             </button>
+            <button 
+                onClick={() => setShowPPEModal(true)}
+                className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-orange-50 text-orange-600 border border-orange-200 hover:bg-orange-100 px-5 py-3 rounded-xl shadow-sm transition-all font-medium"
+                title="Solicitar EPI"
+            >
+                <HardHat size={18}/>
+                EPI
+            </button>
          </div>
       </div>
 
@@ -301,7 +346,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNewRequest, onEditRequest
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Actividad Reciente */}
+        
+        {/* Solicitudes Recientes */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
           <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center">
             <Calendar className="w-5 h-5 mr-2 text-slate-500" /> Solicitudes Recientes
@@ -319,7 +365,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNewRequest, onEditRequest
                     <p className="font-semibold text-slate-700 text-sm">{req.label}</p>
                     {req.createdByAdmin && (
                         <span title="Creada por Admin">
-                            <ShieldCheck size={12} className="text-purple-500"/>
+                            <span title="ShieldCheck Icon"><ShieldCheck size={12} className="text-purple-500"/></span>
                         </span>
                     )}
                   </div>
@@ -345,19 +391,40 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNewRequest, onEditRequest
           </div>
         </div>
 
-        {/* Gráfica Horas Extra */}
+        {/* Gráfica Ausencias Mensuales (Nueva) */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+             <h3 className="text-lg font-bold text-slate-800 mb-4">Evolución de Ausencias (Días)</h3>
+             <div className="h-64 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={monthlyAbsenceStats}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0"/>
+                        <XAxis dataKey="name" fontSize={12} stroke="#94a3b8" tickLine={false} axisLine={false} />
+                        <YAxis fontSize={12} stroke="#94a3b8" tickLine={false} axisLine={false} allowDecimals={false}/>
+                        <Tooltip 
+                            contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                            cursor={{fill: '#f1f5f9'}}
+                        />
+                        <Legend iconType="circle" wrapperStyle={{fontSize: '12px'}}/>
+                        <Bar dataKey="approved" name="Días Aprobados" stackId="a" fill="#22c55e" radius={[0, 0, 4, 4]} />
+                        <Bar dataKey="pending" name="Días Pendientes" stackId="a" fill="#eab308" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                </ResponsiveContainer>
+             </div>
+        </div>
+
+        {/* Gráfica Horas Extra (Full Width on mobile, 2 cols on large?) -> Let's keep grid consistency */}
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 lg:col-span-2">
           <h3 className="text-lg font-bold text-slate-800 mb-4">Gráfica Horas extras realizadas</h3>
           <div className="h-48 w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData}>
+              <BarChart data={chartDataOvertime}>
                 <XAxis dataKey="name" fontSize={12} stroke="#94a3b8" tickLine={false} axisLine={false} />
                 <Tooltip 
                   contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
                   cursor={{fill: '#f1f5f9'}}
                 />
-                <Bar dataKey="hours" radius={[4, 4, 0, 0]}>
-                   {chartData.map((entry, index) => (
+                <Bar dataKey="hours" name="Horas" radius={[4, 4, 0, 0]}>
+                   {chartDataOvertime.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill="#3b82f6" />
                     ))}
                 </Bar>
@@ -365,7 +432,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNewRequest, onEditRequest
             </ResponsiveContainer>
           </div>
         </div>
+
       </div>
+
+      {showPPEModal && (
+          <PPERequestModal userId={user.id} onClose={() => setShowPPEModal(false)} />
+      )}
     </div>
   );
 };

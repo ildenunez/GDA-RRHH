@@ -1,4 +1,5 @@
-import { User, Role, Department, LeaveRequest, RequestStatus, AppConfig, Notification, LeaveTypeConfig, EmailTemplate, ShiftType, ShiftAssignment, Holiday } from '../types';
+
+import { User, Role, Department, LeaveRequest, RequestStatus, AppConfig, Notification, LeaveTypeConfig, EmailTemplate, ShiftType, ShiftAssignment, Holiday, PPEType, PPERequest } from '../types';
 import { supabase } from './supabase';
 
 const DEFAULT_LEAVE_TYPES: LeaveTypeConfig[] = [
@@ -93,6 +94,8 @@ class Store {
     shiftTypes: [],
     shiftAssignments: [],
     holidays: [],
+    ppeTypes: [],
+    ppeRequests: [],
     smtpSettings: { host: 'smtp.gmail.com', port: 587, user: 'admin@empresa.com', password: '', enabled: false }
   };
 
@@ -111,6 +114,10 @@ class Store {
         const { data: shiftTypesData } = await supabase.from('shift_types').select('*');
         const { data: shiftAssignmentsData } = await supabase.from('shift_assignments').select('*');
         const { data: holidaysData } = await supabase.from('holidays').select('*');
+        
+        // Cargar EPIS
+        const { data: ppeTypes } = await supabase.from('ppe_types').select('*');
+        const { data: ppeRequests } = await supabase.from('ppe_requests').select('*');
 
         if (usersData) this.users = this.mapUsersFromDB(usersData);
         if (deptsData) this.departments = deptsData.map((d: any) => ({
@@ -156,6 +163,26 @@ class Store {
                 date: h.date,
                 name: h.name
             }));
+        }
+
+        if (ppeTypes) {
+            this.config.ppeTypes = ppeTypes.map((p: any) => ({
+                id: p.id,
+                name: p.name,
+                sizes: p.sizes
+            }));
+        }
+
+        if (ppeRequests) {
+            this.config.ppeRequests = ppeRequests.map((r: any) => ({
+                id: r.id,
+                userId: r.user_id,
+                typeId: r.type_id,
+                size: r.size,
+                status: r.status,
+                createdAt: r.created_at,
+                deliveryDate: r.delivery_date
+            })).sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
         }
         
         this.initialized = true;
@@ -751,6 +778,61 @@ class Store {
   async deleteHoliday(id: string) {
       await supabase.from('holidays').delete().eq('id', id);
       this.config.holidays = this.config.holidays.filter(h => h.id !== id);
+  }
+
+  // --- EPIS (PPE) ---
+  async addPPEType(type: Partial<PPEType>) {
+      if (!type.name || !type.sizes) return;
+      const id = type.id || type.name.toLowerCase().replace(/\s+/g, '_');
+      const { data } = await supabase.from('ppe_types').insert({ id, name: type.name, sizes: type.sizes }).select().single();
+      if (data) {
+          this.config.ppeTypes.push({ id: data.id, name: data.name, sizes: data.sizes });
+      }
+  }
+
+  async deletePPEType(id: string) {
+      await supabase.from('ppe_types').delete().eq('id', id);
+      this.config.ppeTypes = this.config.ppeTypes.filter(p => p.id !== id);
+  }
+
+  async createPPERequest(userId: string, typeId: string, size: string) {
+      const { data } = await supabase.from('ppe_requests').insert({
+          user_id: userId,
+          type_id: typeId,
+          size,
+          status: 'PENDIENTE'
+      }).select().single();
+      
+      if (data) {
+          this.config.ppeRequests.unshift({
+              id: data.id,
+              userId: data.user_id,
+              typeId: data.type_id,
+              size: data.size,
+              status: data.status,
+              createdAt: data.created_at
+          });
+          
+          // Notify Admin
+          // this.sendMassNotification(this.users.filter(u=>u.role!==Role.WORKER).map(u=>u.id), `Nueva solicitud de EPI de ${this.users.find(u=>u.id===userId)?.name}`);
+      }
+  }
+
+  async deliverPPERequest(reqId: string) {
+      const now = new Date().toISOString();
+      const { data } = await supabase.from('ppe_requests').update({ 
+          status: 'ENTREGADO', 
+          delivery_date: now 
+      }).eq('id', reqId).select().single();
+
+      if (data) {
+          const idx = this.config.ppeRequests.findIndex(r => r.id === reqId);
+          if (idx !== -1) {
+              this.config.ppeRequests[idx].status = 'ENTREGADO';
+              this.config.ppeRequests[idx].deliveryDate = now;
+              this.createNotification(this.config.ppeRequests[idx].userId, `Tu solicitud de EPI ha sido marcada como ENTREGADA.`);
+          }
+      }
   }
 }
 

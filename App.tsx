@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { store } from './services/store';
-import { User, Role, LeaveTypeConfig, Department, LeaveRequest, OvertimeUsage, EmailTemplate, ShiftType, ShiftSegment, Holiday } from './types';
+import { User, Role, LeaveTypeConfig, Department, LeaveRequest, OvertimeUsage, EmailTemplate, ShiftType, ShiftSegment, Holiday, PPEType } from './types';
 import Dashboard from './components/Dashboard';
 import { Approvals, UserManagement } from './components/Management';
 import CalendarView from './components/CalendarView';
@@ -10,6 +10,7 @@ import ProfileView from './components/ProfileView';
 import RequestDetailModal from './components/RequestDetailModal';
 import RequestFormModal from './components/RequestFormModal';
 import HelpView from './components/HelpView';
+import PPEView from './components/PPEView';
 import { 
   LayoutDashboard, 
   CalendarDays, 
@@ -39,7 +40,8 @@ import {
   MessageSquare,
   Search,
   UserCircle,
-  HelpCircle
+  HelpCircle,
+  HardHat
 } from 'lucide-react';
 
 const LOGO_URL = "https://termosycalentadoresgranada.com/wp-content/uploads/2025/08/https___cdn.evbuc_.com_images_677236879_73808960223_1_original.png";
@@ -202,7 +204,7 @@ const AdminSettings = ({ onViewRequest }: { onViewRequest: (req: LeaveRequest) =
     const [editingTypeId, setEditingTypeId] = useState<string | null>(null);
     const [isDeptModalOpen, setIsDeptModalOpen] = useState(false);
     const [editingDept, setEditingDept] = useState<Department | undefined>(undefined);
-    const [subTab, setSubTab] = useState<'general' | 'absences' | 'users' | 'departments' | 'communications'>('users');
+    const [subTab, setSubTab] = useState<'general' | 'absences' | 'users' | 'departments' | 'communications' | 'epis'>('users');
     
     // Shifts State
     const [newShift, setNewShift] = useState<Partial<ShiftType>>({ name: '', color: '#3b82f6', segments: [{start: '09:00', end: '14:00'}] });
@@ -211,6 +213,9 @@ const AdminSettings = ({ onViewRequest }: { onViewRequest: (req: LeaveRequest) =
     // Holidays State
     const [newHoliday, setNewHoliday] = useState({ date: '', name: '' });
     const [editingHolidayId, setEditingHolidayId] = useState<string | null>(null);
+
+    // EPIS State
+    const [newPPE, setNewPPE] = useState({ name: '', sizesStr: '' });
 
     // Communications Sub-Tabs
     const [commTab, setCommTab] = useState<'templates' | 'smtp' | 'message'>('templates');
@@ -356,6 +361,22 @@ const AdminSettings = ({ onViewRequest }: { onViewRequest: (req: LeaveRequest) =
         }
     };
 
+    // --- PPE HANDLERS ---
+    const handleAddPPE = async () => {
+        if (!newPPE.name || !newPPE.sizesStr) return;
+        const sizes = newPPE.sizesStr.split(',').map(s => s.trim()).filter(s => s);
+        await store.addPPEType({ name: newPPE.name, sizes });
+        setConfig({...store.config});
+        setNewPPE({ name: '', sizesStr: '' });
+    };
+
+    const handleDeletePPE = async (id: string) => {
+        if(confirm('¿Borrar tipo de EPI?')) {
+            await store.deletePPEType(id);
+            setConfig({...store.config});
+        }
+    };
+
 
     const filteredUsers = store.users.filter(u => u.name.toLowerCase().includes(searchTerm.toLowerCase()));
 
@@ -365,9 +386,9 @@ const AdminSettings = ({ onViewRequest }: { onViewRequest: (req: LeaveRequest) =
                  <Settings className="text-slate-500"/> <h2 className="text-xl font-bold text-slate-800">Administración</h2>
             </div>
             <div className="flex border-b border-slate-100 overflow-x-auto">
-                {['users', 'departments', 'absences', 'communications'].map(tab => (
+                {['users', 'departments', 'absences', 'epis', 'communications'].map(tab => (
                     <button key={tab} onClick={() => setSubTab(tab as any)} className={`px-6 py-3 text-sm font-medium border-b-2 capitalize transition-colors whitespace-nowrap ${subTab === tab ? 'border-blue-500 text-blue-600' : 'border-transparent text-slate-500'}`}>
-                        {tab === 'users' ? 'Usuarios' : tab === 'departments' ? 'Departamentos' : tab === 'absences' ? 'Configuración RRHH' : 'Comunicaciones'}
+                        {tab === 'users' ? 'Usuarios' : tab === 'departments' ? 'Departamentos' : tab === 'absences' ? 'Configuración RRHH' : tab === 'epis' ? 'EPIs' : 'Comunicaciones'}
                     </button>
                 ))}
             </div>
@@ -471,6 +492,49 @@ const AdminSettings = ({ onViewRequest }: { onViewRequest: (req: LeaveRequest) =
                                     </div>
                                 </div>
                             </div>
+                        </div>
+                    </div>
+                )}
+                {subTab === 'epis' && (
+                    <div className="max-w-4xl mx-auto space-y-6">
+                        <div className="flex justify-between items-center">
+                             <div>
+                                 <h3 className="font-bold text-lg">Configuración de EPIs</h3>
+                                 <p className="text-sm text-slate-500">Define los elementos que los empleados pueden solicitar.</p>
+                             </div>
+                        </div>
+                        
+                        <div className="bg-slate-50 p-6 rounded-xl border border-slate-200">
+                             <h4 className="font-bold text-sm uppercase mb-4 text-slate-700">Añadir Nuevo Tipo</h4>
+                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
+                                 <div>
+                                     <label className="block text-xs font-bold text-slate-500 mb-1">Nombre (Ej: Botas Seguridad)</label>
+                                     <input className="w-full p-2 border rounded" value={newPPE.name} onChange={e => setNewPPE({...newPPE, name: e.target.value})} placeholder="Nombre del EPI"/>
+                                 </div>
+                                 <div>
+                                     <label className="block text-xs font-bold text-slate-500 mb-1">Tallas (Separadas por comas)</label>
+                                     <input className="w-full p-2 border rounded" value={newPPE.sizesStr} onChange={e => setNewPPE({...newPPE, sizesStr: e.target.value})} placeholder="S, M, L, XL ó 38, 39, 40..."/>
+                                 </div>
+                                 <button onClick={handleAddPPE} className="bg-slate-900 text-white px-4 py-2 rounded font-bold text-sm">Añadir Tipo</button>
+                             </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            {config.ppeTypes.map(type => (
+                                <div key={type.id} className="bg-white border p-4 rounded-xl shadow-sm flex flex-col justify-between">
+                                    <div>
+                                        <div className="flex justify-between items-start">
+                                            <h4 className="font-bold text-slate-800">{type.name}</h4>
+                                            <button onClick={() => handleDeletePPE(type.id)} className="text-slate-300 hover:text-red-500"><Trash size={16}/></button>
+                                        </div>
+                                        <div className="mt-2 flex flex-wrap gap-1">
+                                            {type.sizes.map(s => (
+                                                <span key={s} className="text-xs bg-slate-100 px-1.5 py-0.5 rounded text-slate-600 font-mono">{s}</span>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
                         </div>
                     </div>
                 )}
@@ -648,6 +712,7 @@ export default function App() {
           <NavItem id="calendar" icon={CalendarDays} label="Calendario" />
           <NavItem id="notifications" icon={Bell} label="Notificaciones" badgeCount={unreadNotificationsCount} />
           <NavItem id="profile" icon={UserCircle} label="Mi Perfil" />
+          <NavItem id="epis" icon={HardHat} label="EPIS" />
           {(isSupervisor) && (
             <>
               <div className="pt-4 pb-2 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Gestión</div>
@@ -683,7 +748,7 @@ export default function App() {
       <main className="flex-1 md:ml-64 flex flex-col h-screen overflow-hidden">
         <header className="h-16 bg-white border-b border-slate-100 flex items-center justify-between px-6 z-30">
           <button onClick={() => setMobileMenuOpen(true)} className="md:hidden text-slate-600"><Menu/></button>
-          <h2 className="text-lg font-semibold text-slate-800 capitalize">{activeTab === 'settings' ? 'Administración' : activeTab === 'team' ? 'Mi Equipo' : activeTab === 'profile' ? 'Mi Perfil' : activeTab === 'help' ? 'Centro de Ayuda' : activeTab}</h2>
+          <h2 className="text-lg font-semibold text-slate-800 capitalize">{activeTab === 'settings' ? 'Administración' : activeTab === 'team' ? 'Mi Equipo' : activeTab === 'profile' ? 'Mi Perfil' : activeTab === 'help' ? 'Centro de Ayuda' : activeTab === 'epis' ? 'Gestión de EPIS' : activeTab}</h2>
           <div className="flex items-center gap-4">
             <button onClick={() => {setModalInitialTab('absence'); setEditingRequest(null); setShowRequestModal(true);}} className="hidden md:flex bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium items-center gap-2 shadow-lg shadow-blue-500/20"><Plus size={16} /> Nueva Solicitud</button>
             <div className="relative cursor-pointer group"><Bell className="text-slate-400 group-hover:text-slate-600" />{store.notifications.length > 0 && <span className="absolute top-0 right-0 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white"></span>}</div>
@@ -697,6 +762,7 @@ export default function App() {
            {activeTab === 'profile' && <ProfileView user={user} onProfileUpdate={() => setUser({...store.currentUser!})} />}
            {activeTab === 'approvals' && isSupervisor && <Approvals user={user} onViewRequest={handleViewRequest} />}
            {activeTab === 'team' && isSupervisor && <UserManagement currentUser={user} onViewRequest={handleViewRequest} />}
+           {activeTab === 'epis' && <PPEView user={user} />}
            {activeTab === 'settings' && isAdmin && <AdminSettings onViewRequest={handleViewRequest} />}
            {activeTab === 'help' && <HelpView />}
         </div>
