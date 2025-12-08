@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo } from 'react';
 import { User, RequestStatus, Role, LeaveRequest } from '../types';
 import { store } from '../services/store';
@@ -55,6 +54,9 @@ export const Approvals: React.FC<{ user: User, onViewRequest: (req: LeaveRequest
             <div className="divide-y divide-slate-100">
               {requests.map((req) => {
                 const requester = store.users.find(u => u.id === req.userId);
+                // Check conflicts for this request
+                const conflicts = store.getRequestConflicts(req);
+
                 return (
                   <div key={req.id} className="p-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 hover:bg-slate-50 transition-colors">
                     <div className="flex items-center gap-4 cursor-pointer group" onClick={() => onViewRequest(req)}>
@@ -74,6 +76,26 @@ export const Approvals: React.FC<{ user: User, onViewRequest: (req: LeaveRequest
                             {req.endDate && ` - ${new Date(req.endDate).toLocaleDateString()}`}
                         </p>
                         {req.reason && <p className="text-xs text-slate-400 italic mt-1">"{req.reason}"</p>}
+                        
+                        {/* CONFLICT WARNING */}
+                        {conflicts.length > 0 && (
+                            <div className="mt-2 bg-orange-50 border border-orange-100 rounded-lg p-2 max-w-sm animate-fade-in">
+                                <div className="text-xs font-bold text-orange-700 flex items-center gap-1 mb-1">
+                                    <AlertTriangle size={12}/> Conflicto Dpto. ({conflicts.length})
+                                </div>
+                                <div className="space-y-1">
+                                    {conflicts.map(c => {
+                                        const cUser = store.users.find(u => u.id === c.userId);
+                                        return (
+                                            <div key={c.id} className="text-[10px] text-orange-800 flex items-center gap-1">
+                                                <span className="font-semibold">{cUser?.name.split(' ')[0]}:</span>
+                                                <span>{c.label} ({c.status})</span>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
                       </div>
                     </div>
                     <div className="flex gap-2">
@@ -175,6 +197,17 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
   // Estado para el modal de Crear/Editar Solicitud Manual (Admin)
   const [showAdminRequestModal, setShowAdminRequestModal] = useState(false);
   const [requestToEdit, setRequestToEdit] = useState<LeaveRequest | null>(null);
+
+  const getDurationString = (req: LeaveRequest) => {
+      if (req.hours && req.hours > 0) return `${req.hours}h`;
+      const start = new Date(req.startDate);
+      const end = req.endDate ? new Date(req.endDate) : start;
+      start.setHours(0,0,0,0);
+      end.setHours(0,0,0,0);
+      const diff = Math.abs(end.getTime() - start.getTime());
+      const days = Math.ceil(diff / (1000 * 3600 * 24)) + 1; 
+      return `${days} día${days !== 1 ? 's' : ''}`;
+  };
 
   // Lógica de Filtrado de Usuarios
   const displayUsers = useMemo(() => {
@@ -323,17 +356,6 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
   };
 
   const getDeptName = (id: string) => store.departments.find(d => d.id === id)?.name || id;
-
-  const getDurationString = (req: LeaveRequest) => {
-      if (req.hours && req.hours > 0) return `${req.hours}h`;
-      const start = new Date(req.startDate);
-      const end = req.endDate ? new Date(req.endDate) : start;
-      start.setHours(0,0,0,0);
-      end.setHours(0,0,0,0);
-      const diff = Math.abs(end.getTime() - start.getTime());
-      const days = Math.ceil(diff / (1000 * 3600 * 24)) + 1; 
-      return `${days} día${days !== 1 ? 's' : ''}`;
-  };
 
   const isCreating = editingUser && editingUser.id === '';
   const isAdmin = currentUser.role === Role.ADMIN;

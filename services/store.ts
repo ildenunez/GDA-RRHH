@@ -133,7 +133,7 @@ class Store {
                 id: t.id,
                 label: t.label,
                 subtractsDays: t.subtracts_days,
-                fixedRange: t.fixed_range
+                fixed_range: t.fixed_range
             }));
         } else {
             this.config.leaveTypes = [...DEFAULT_LEAVE_TYPES];
@@ -295,6 +295,38 @@ class Store {
         );
     }
     return requestsToShow;
+  }
+
+  // --- CONFLICT DETECTION FOR A SINGLE REQUEST ---
+  getRequestConflicts(req: LeaveRequest): LeaveRequest[] {
+      const user = this.users.find(u => u.id === req.userId);
+      if (!user) return [];
+
+      // Find other users in the same department
+      const deptUserIds = this.users
+          .filter(u => u.departmentId === user.departmentId && u.id !== user.id)
+          .map(u => u.id);
+
+      if (deptUserIds.length === 0) return [];
+
+      const start = new Date(req.startDate);
+      const end = new Date(req.endDate || req.startDate);
+      start.setHours(0,0,0,0);
+      end.setHours(0,0,0,0);
+
+      // Filter requests that are Approved or Pending, overlap in date, belong to dept members, and are NOT overtime logs
+      return this.requests.filter(other => {
+          if (!deptUserIds.includes(other.userId)) return false;
+          if (other.status !== RequestStatus.APPROVED && other.status !== RequestStatus.PENDING) return false;
+          if (this.isOvertimeRequest(other.typeId)) return false; // Usually only absences conflict
+
+          const otherStart = new Date(other.startDate);
+          const otherEnd = new Date(other.endDate || other.startDate);
+          otherStart.setHours(0,0,0,0);
+          otherEnd.setHours(0,0,0,0);
+
+          return (start <= otherEnd && end >= otherStart);
+      });
   }
 
   getCalendarRequests(viewerId: string, filterDeptId?: string): LeaveRequest[] {
