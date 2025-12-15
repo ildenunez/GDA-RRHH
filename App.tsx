@@ -1,9 +1,8 @@
-
 import React, { useState, useEffect } from 'react';
 import { store } from './services/store';
 import { User, Role, LeaveTypeConfig, Department, LeaveRequest, OvertimeUsage, EmailTemplate, ShiftType, ShiftSegment, Holiday, PPEType } from './types';
 import Dashboard from './components/Dashboard';
-import { Approvals, UserManagement } from './components/Management';
+import { Approvals, UserManagement, UpcomingAbsences } from './components/Management';
 import CalendarView from './components/CalendarView';
 import NotificationsView from './components/NotificationsView';
 import ProfileView from './components/ProfileView';
@@ -41,7 +40,8 @@ import {
   Search,
   UserCircle,
   HelpCircle,
-  HardHat
+  HardHat,
+  CalendarClock
 } from 'lucide-react';
 
 const LOGO_URL = "https://termosycalentadoresgranada.com/wp-content/uploads/2025/08/https___cdn.evbuc_.com_images_677236879_73808960223_1_original.png";
@@ -718,6 +718,7 @@ export default function App() {
               <div className="pt-4 pb-2 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Gestión</div>
               <NavItem id="approvals" icon={ShieldCheck} label="Aprobaciones" badgeCount={pendingCount} />
               <NavItem id="team" icon={UsersIcon} label="Mi Equipo" />
+              <NavItem id="upcoming" icon={CalendarClock} label="Próximas Ausencias" />
             </>
           )}
           {(isAdmin) && (
@@ -748,7 +749,7 @@ export default function App() {
       <main className="flex-1 md:ml-64 flex flex-col h-screen overflow-hidden">
         <header className="h-16 bg-white border-b border-slate-100 flex items-center justify-between px-6 z-30">
           <button onClick={() => setMobileMenuOpen(true)} className="md:hidden text-slate-600"><Menu/></button>
-          <h2 className="text-lg font-semibold text-slate-800 capitalize">{activeTab === 'settings' ? 'Administración' : activeTab === 'team' ? 'Mi Equipo' : activeTab === 'profile' ? 'Mi Perfil' : activeTab === 'help' ? 'Centro de Ayuda' : activeTab === 'epis' ? 'Gestión de EPIS' : activeTab}</h2>
+          <h2 className="text-lg font-semibold text-slate-800 capitalize">{activeTab === 'settings' ? 'Administración' : activeTab === 'team' ? 'Mi Equipo' : activeTab === 'profile' ? 'Mi Perfil' : activeTab === 'help' ? 'Centro de Ayuda' : activeTab === 'epis' ? 'Gestión de EPIS' : activeTab === 'upcoming' ? 'Próximas Ausencias' : activeTab}</h2>
           <div className="flex items-center gap-4">
             <button onClick={() => {setModalInitialTab('absence'); setEditingRequest(null); setShowRequestModal(true);}} className="hidden md:flex bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium items-center gap-2 shadow-lg shadow-blue-500/20"><Plus size={16} /> Nueva Solicitud</button>
             <div className="relative cursor-pointer group"><Bell className="text-slate-400 group-hover:text-slate-600" />{store.notifications.length > 0 && <span className="absolute top-0 right-0 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white"></span>}</div>
@@ -762,6 +763,7 @@ export default function App() {
            {activeTab === 'profile' && <ProfileView user={user} onProfileUpdate={() => setUser({...store.currentUser!})} />}
            {activeTab === 'approvals' && isSupervisor && <Approvals user={user} onViewRequest={handleViewRequest} />}
            {activeTab === 'team' && isSupervisor && <UserManagement currentUser={user} onViewRequest={handleViewRequest} />}
+           {activeTab === 'upcoming' && isSupervisor && <UpcomingAbsences user={user} onViewRequest={handleViewRequest} />}
            {activeTab === 'epis' && <PPEView user={user} />}
            {activeTab === 'settings' && isAdmin && <AdminSettings onViewRequest={handleViewRequest} />}
            {activeTab === 'help' && <HelpView />}

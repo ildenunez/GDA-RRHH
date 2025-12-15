@@ -3,7 +3,7 @@ import { User, RequestStatus, Role, LeaveRequest } from '../types';
 import { store } from '../services/store';
 import ShiftScheduler from './ShiftScheduler';
 import RequestFormModal from './RequestFormModal';
-import { Check, X, Users, Edit2, Shield, Trash2, AlertTriangle, Briefcase, FileText, Activity, Clock, CalendarDays, ExternalLink, UserPlus, MessageSquare, PieChart, TrendingUp, Calendar, Filter, Paintbrush, Plus } from 'lucide-react';
+import { Check, X, Users, Edit2, Shield, Trash2, AlertTriangle, Briefcase, FileText, Activity, Clock, CalendarDays, ExternalLink, UserPlus, MessageSquare, PieChart, TrendingUp, Calendar, Filter, Paintbrush, Plus, CalendarClock, Search } from 'lucide-react';
 
 export const Approvals: React.FC<{ user: User, onViewRequest: (req: LeaveRequest) => void }> = ({ user, onViewRequest }) => {
   const [pending, setPending] = useState(store.getPendingApprovalsForUser(user.id));
@@ -178,6 +178,267 @@ export const Approvals: React.FC<{ user: User, onViewRequest: (req: LeaveRequest
     </div>
   );
 };
+
+export const UpcomingAbsences: React.FC<{ user: User, onViewRequest: (req: LeaveRequest) => void }> = ({ user, onViewRequest }) => {
+    const [filterDeptId, setFilterDeptId] = useState<string>('');
+    const [filterUserId, setFilterUserId] = useState<string>('');
+    const [confirmAction, setConfirmAction] = useState<{reqId: string, status: RequestStatus} | null>(null);
+    const [adminComment, setAdminComment] = useState('');
+    const [refresh, setRefresh] = useState(0); // Trigger re-render
+
+    const handleActionClick = (reqId: string, status: RequestStatus) => {
+        setConfirmAction({ reqId, status });
+        setAdminComment('');
+    };
+  
+    const executeAction = async () => {
+        if (!confirmAction) return;
+        await store.updateRequestStatus(confirmAction.reqId, confirmAction.status, user.id, adminComment);
+        setConfirmAction(null);
+        setRefresh(prev => prev + 1);
+    };
+
+    const availableDepts = useMemo(() => {
+        if (user.role === Role.ADMIN) return store.departments;
+        return store.departments.filter(d => d.supervisorIds.includes(user.id));
+    }, [user]);
+
+    const availableUsers = useMemo(() => {
+        let users = store.users;
+        if (user.role === Role.SUPERVISOR) {
+             const myDeptIds = availableDepts.map(d => d.id);
+             users = users.filter(u => myDeptIds.includes(u.departmentId));
+        }
+        if (filterDeptId) {
+            users = users.filter(u => u.departmentId === filterDeptId);
+        }
+        return users.sort((a,b) => a.name.localeCompare(b.name));
+    }, [user, availableDepts, filterDeptId]);
+
+    const upcomingRequests = useMemo(() => {
+        const today = new Date();
+        today.setHours(0,0,0,0);
+        const todayStr = today.toISOString().split('T')[0];
+
+        let reqs = store.requests.filter(r => {
+             // Basic validity check
+             if (store.isOvertimeRequest(r.typeId)) return false; // Solo ausencias
+             if (r.status === RequestStatus.REJECTED) return false;
+
+             // Role Logic
+             const reqUser = store.users.find(u => u.id === r.userId);
+             if (!reqUser) return false;
+             
+             if (user.role === Role.SUPERVISOR) {
+                 const myDeptIds = availableDepts.map(d => d.id);
+                 if (!myDeptIds.includes(reqUser.departmentId)) return false;
+             }
+
+             // Filters
+             if (filterDeptId && reqUser.departmentId !== filterDeptId) return false;
+             if (filterUserId && r.userId !== filterUserId) return false;
+
+             // Date Logic (Future or Ongoing)
+             const end = r.endDate || r.startDate;
+             return end >= todayStr;
+        });
+
+        // Sort by start date ascending (nearest first)
+        return reqs.sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
+
+    }, [user, availableDepts, filterDeptId, filterUserId, refresh, store.requests]);
+
+    return (
+        <div className="space-y-6 animate-fade-in">
+             {/* FILTERS */}
+             <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex flex-col md:flex-row gap-4 items-center justify-between">
+                <div className="flex items-center gap-2">
+                    <CalendarClock className="text-blue-600"/>
+                    <h2 className="text-lg font-bold text-slate-800">Próximas Ausencias</h2>
+                </div>
+                <div className="flex gap-4 w-full md:w-auto">
+                    <div className="relative flex-1 md:w-48">
+                         <Filter className="absolute left-3 top-2.5 text-slate-400 w-4 h-4"/>
+                         <select 
+                            className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-50 focus:bg-white"
+                            value={filterDeptId}
+                            onChange={(e) => { setFilterDeptId(e.target.value); setFilterUserId(''); }}
+                         >
+                             <option value="">Todos los Dptos.</option>
+                             {availableDepts.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                         </select>
+                    </div>
+                    <div className="relative flex-1 md:w-48">
+                         <Search className="absolute left-3 top-2.5 text-slate-400 w-4 h-4"/>
+                         <select 
+                            className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-50 focus:bg-white"
+                            value={filterUserId}
+                            onChange={(e) => setFilterUserId(e.target.value)}
+                         >
+                             <option value="">Todos los Usuarios</option>
+                             {availableUsers.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                         </select>
+                    </div>
+                </div>
+             </div>
+
+             {/* LIST */}
+             <div className="space-y-4">
+                 {upcomingRequests.length === 0 ? (
+                     <div className="text-center py-12 text-slate-400">No se han encontrado ausencias próximas con los filtros seleccionados.</div>
+                 ) : (
+                     upcomingRequests.map(req => {
+                         const reqUser = store.users.find(u => u.id === req.userId);
+                         const conflicts = store.getRequestConflicts(req);
+
+                         return (
+                             <div key={req.id} className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 hover:border-blue-200 transition-all flex flex-col md:flex-row gap-6">
+                                 {/* LEFT: INFO */}
+                                 <div className="flex-1">
+                                     <div className="flex items-center justify-between mb-2">
+                                         <div className="flex items-center gap-3">
+                                             <img src={reqUser?.avatar} className="w-10 h-10 rounded-full border border-slate-100"/>
+                                             <div>
+                                                 <h4 className="font-bold text-slate-800">{reqUser?.name}</h4>
+                                                 <p className="text-xs text-slate-500">{store.departments.find(d=>d.id===reqUser?.departmentId)?.name}</p>
+                                             </div>
+                                         </div>
+                                         <span className={`px-2 py-1 rounded-full text-xs font-bold flex items-center gap-1 ${
+                                             req.status === RequestStatus.APPROVED ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
+                                         }`}>
+                                             {req.status === RequestStatus.APPROVED ? <Check size={12}/> : <AlertTriangle size={12}/>}
+                                             {req.status}
+                                         </span>
+                                     </div>
+
+                                     <div className="mt-4 grid grid-cols-2 gap-4">
+                                         <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
+                                             <span className="text-xs font-bold text-slate-400 uppercase block mb-1">Ausencia</span>
+                                             <span className="text-sm font-semibold text-slate-800">{req.label}</span>
+                                         </div>
+                                         <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
+                                             <span className="text-xs font-bold text-slate-400 uppercase block mb-1">Fechas</span>
+                                             <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+                                                 <Calendar size={14} className="text-blue-500"/>
+                                                 {new Date(req.startDate).toLocaleDateString()}
+                                                 {req.endDate && (
+                                                     <>
+                                                        <span className="text-slate-400">-</span>
+                                                        {new Date(req.endDate).toLocaleDateString()}
+                                                     </>
+                                                 )}
+                                             </div>
+                                         </div>
+                                     </div>
+                                 </div>
+
+                                 {/* RIGHT: CONFLICTS & ACTIONS */}
+                                 <div className="md:w-72 flex flex-col justify-between border-t md:border-t-0 md:border-l border-slate-100 pt-4 md:pt-0 md:pl-6 gap-4">
+                                     {/* CONFLICT BOX */}
+                                     {conflicts.length > 0 ? (
+                                         <div className="bg-red-50 border border-red-100 rounded-lg p-3 flex-1">
+                                             <div className="text-xs font-bold text-red-700 flex items-center gap-1 mb-2">
+                                                 <AlertTriangle size={14}/> Conflictos Detectados
+                                             </div>
+                                             <div className="space-y-2 max-h-32 overflow-y-auto">
+                                                 {conflicts.map(c => {
+                                                     const cUser = store.users.find(u => u.id === c.userId);
+                                                     return (
+                                                         <div key={c.id} className="text-xs bg-white p-2 rounded border border-red-100 shadow-sm">
+                                                             <div className="font-bold text-slate-700">{cUser?.name}</div>
+                                                             <div className="text-slate-500">{c.label}</div>
+                                                             <div className="text-[10px] text-slate-400 mt-1">
+                                                                 {new Date(c.startDate).toLocaleDateString()} - {c.endDate ? new Date(c.endDate).toLocaleDateString() : '...'}
+                                                             </div>
+                                                         </div>
+                                                     )
+                                                 })}
+                                             </div>
+                                         </div>
+                                     ) : (
+                                         <div className="flex-1 flex items-center justify-center text-slate-300 text-sm italic border border-dashed border-slate-200 rounded-lg bg-slate-50">
+                                             Sin conflictos
+                                         </div>
+                                     )}
+
+                                     {/* ACTIONS (Only if pending) */}
+                                     {req.status === RequestStatus.PENDING && (
+                                         <div className="flex gap-2">
+                                             <button 
+                                                 onClick={() => handleActionClick(req.id, RequestStatus.REJECTED)}
+                                                 className="flex-1 bg-white border border-red-200 text-red-600 hover:bg-red-50 py-2 rounded-lg text-sm font-bold transition-colors"
+                                             >
+                                                 Rechazar
+                                             </button>
+                                             <button 
+                                                 onClick={() => handleActionClick(req.id, RequestStatus.APPROVED)}
+                                                 className="flex-1 bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg text-sm font-bold shadow-md transition-colors"
+                                             >
+                                                 Aprobar
+                                             </button>
+                                         </div>
+                                     )}
+                                     {req.status === RequestStatus.APPROVED && (
+                                         <button onClick={() => onViewRequest(req)} className="w-full bg-slate-100 text-slate-600 hover:bg-slate-200 py-2 rounded-lg text-sm font-bold transition-colors">
+                                             Ver Detalles
+                                         </button>
+                                     )}
+                                 </div>
+                             </div>
+                         );
+                     })
+                 )}
+             </div>
+
+             {/* MODAL CONFIRMACIÓN (REUSED) */}
+            {confirmAction && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4 backdrop-blur-sm">
+                    <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl animate-scale-in">
+                        <div className="p-6 border-b border-slate-100">
+                            <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                                {confirmAction.status === RequestStatus.APPROVED ? <Check className="text-green-500"/> : <X className="text-red-500"/>}
+                                Confirmar {confirmAction.status === RequestStatus.APPROVED ? 'Aprobación' : 'Rechazo'}
+                            </h3>
+                        </div>
+                        <div className="p-6 space-y-4">
+                            <p className="text-sm text-slate-600">
+                                ¿Estás seguro de que deseas <strong>{confirmAction.status === RequestStatus.APPROVED ? 'APROBAR' : 'RECHAZAR'}</strong> esta solicitud?
+                            </p>
+                            <div>
+                                <label className="block text-sm font-semibold text-slate-700 mb-2 flex items-center gap-2">
+                                    <MessageSquare size={16}/> Comentario (Opcional)
+                                </label>
+                                <textarea 
+                                    className="w-full p-3 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                                    rows={3}
+                                    placeholder="Añade un motivo o mensaje para el empleado..."
+                                    value={adminComment}
+                                    onChange={e => setAdminComment(e.target.value)}
+                                />
+                            </div>
+                        </div>
+                        <div className="p-4 bg-slate-50 rounded-b-2xl flex justify-end gap-3">
+                            <button 
+                                onClick={() => setConfirmAction(null)} 
+                                className="px-4 py-2 text-slate-600 hover:bg-slate-200 rounded-lg font-medium transition-colors"
+                            >
+                                Cancelar
+                            </button>
+                            <button 
+                                onClick={executeAction}
+                                className={`px-4 py-2 text-white font-bold rounded-lg shadow-md transition-colors ${
+                                    confirmAction.status === RequestStatus.APPROVED ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'
+                                }`}
+                            >
+                                Confirmar Acción
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
 
 export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: LeaveRequest) => void }> = ({ currentUser, onViewRequest }) => {
   const [viewTab, setViewTab] = useState<'list' | 'planning'>('list');
