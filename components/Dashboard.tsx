@@ -1,4 +1,5 @@
 
+
 import React, { useState } from 'react';
 import { User, RequestStatus, LeaveRequest } from '../types';
 import { store } from '../services/store';
@@ -16,18 +17,22 @@ interface DashboardProps {
 const Dashboard: React.FC<DashboardProps> = ({ user, onNewRequest, onEditRequest, onViewRequest }) => {
   const [detailView, setDetailView] = useState<'none' | 'days' | 'hours'>('none');
   const [showPPEModal, setShowPPEModal] = useState(false);
+  const [refresh, setRefresh] = useState(0);
   
   const requests = store.getMyRequests();
   const nextShiftData = store.getNextShift(user.id);
 
-  const handleDelete = (reqId: string) => {
+  const handleDelete = async (reqId: string) => {
       if(confirm('¿Seguro que deseas eliminar esta solicitud pendiente?')) {
-          store.deleteRequest(reqId);
-          setDetailView(detailView); // Trick to trigger refresh
+          await store.deleteRequest(reqId);
+          setRefresh(prev => prev + 1); // Trigger refresh
       }
   };
 
   const getDurationString = (req: LeaveRequest) => {
+      if (req.typeId === 'adjustment_days') return `${req.hours && req.hours > 0 ? '+' : ''}${req.hours} días`;
+      if (req.typeId === 'overtime_adjustment') return `${req.hours && req.hours > 0 ? '+' : ''}${req.hours}h (Reg.)`;
+      
       if (req.hours && req.hours > 0) return `${req.hours}h`;
       const start = new Date(req.startDate);
       const end = req.endDate ? new Date(req.endDate) : start;
@@ -106,7 +111,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNewRequest, onEditRequest
   requests.forEach(req => {
       // Filtrar: Solo ausencias (no horas extra) y que resten días o sean vacaciones
       // Consideramos "Consumido" si es APPROVED o PENDING
-      const isAbsence = !store.isOvertimeRequest(req.typeId);
+      const isAbsence = !store.isOvertimeRequest(req.typeId) && req.typeId !== 'adjustment_days';
       
       if (isAbsence && (req.status === RequestStatus.APPROVED || req.status === RequestStatus.PENDING)) {
           // Iterar día a día para asignar al mes correcto (por si cruza meses)
@@ -206,12 +211,18 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNewRequest, onEditRequest
                                             {req.reason && <div className="text-xs text-slate-500 italic mt-1">{req.reason}</div>}
                                         </td>
                                         <td className="px-6 py-4 text-slate-600">
-                                            {new Date(req.startDate).toLocaleDateString()}
-                                            {req.endDate && ` - ${new Date(req.endDate).toLocaleDateString()}`}
+                                            {req.typeId === 'adjustment_days' || req.typeId === 'overtime_adjustment' 
+                                                ? <span className="font-medium">Ajuste Manual</span>
+                                                : <span>{new Date(req.startDate).toLocaleDateString()}{req.endDate && ` - ${new Date(req.endDate).toLocaleDateString()}`}</span>
+                                            }
                                         </td>
                                         {isOvertimeView && (
-                                            <td className="px-6 py-4 font-mono font-bold text-slate-700">
-                                                {req.hours}h
+                                            <td className={`px-6 py-4 font-mono font-bold ${
+                                                req.typeId === 'overtime_adjustment' && (req.hours||0) < 0 ? 'text-red-600' :
+                                                req.typeId === 'overtime_adjustment' && (req.hours||0) > 0 ? 'text-green-600' :
+                                                'text-slate-700'
+                                            }`}>
+                                                {req.typeId === 'overtime_adjustment' && (req.hours||0) > 0 ? '+' : ''}{req.hours}h
                                             </td>
                                         )}
                                         <td className="px-6 py-4">
@@ -358,7 +369,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNewRequest, onEditRequest
               <div 
                 key={req.id} 
                 onClick={() => onViewRequest(req)}
-                className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-100 cursor-pointer hover:bg-slate-100 transition-colors"
+                className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-100 cursor-pointer hover:bg-slate-100 transition-colors group"
               >
                 <div>
                   <div className="flex items-center gap-2">
@@ -369,14 +380,19 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNewRequest, onEditRequest
                         </span>
                     )}
                   </div>
-                  <p className="text-xs text-slate-500">{new Date(req.startDate).toLocaleDateString()} {req.endDate && ` - ${new Date(req.endDate).toLocaleDateString()}`}</p>
+                  <p className="text-xs text-slate-500">
+                      {req.typeId === 'adjustment_days' || req.typeId === 'overtime_adjustment' 
+                        ? 'Ajuste Manual' 
+                        : `${new Date(req.startDate).toLocaleDateString()} ${req.endDate ? ' - ' + new Date(req.endDate).toLocaleDateString() : ''}`
+                      }
+                  </p>
                   <div className="mt-1">
                       <span className="text-[10px] bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded font-bold">
                           {getDurationString(req)}
                       </span>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-3">
                     <span className={`px-2 py-1 rounded-full text-xs font-medium flex items-center gap-1
                     ${req.status === RequestStatus.APPROVED ? 'bg-green-100 text-green-700' : 
                         req.status === RequestStatus.REJECTED ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>
@@ -385,6 +401,26 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNewRequest, onEditRequest
                     {req.status === RequestStatus.PENDING && <AlertCircle size={12}/>}
                     {req.status}
                     </span>
+
+                    {/* Botones de acción para PENDIENTES */}
+                    {req.status === RequestStatus.PENDING && (
+                        <div className="flex gap-1" onClick={e => e.stopPropagation()}>
+                             <button 
+                                onClick={() => onEditRequest(req)}
+                                className="p-1.5 text-slate-400 hover:text-blue-500 hover:bg-blue-50 rounded transition-colors"
+                                title="Editar Solicitud"
+                             >
+                                 <Edit2 size={14}/>
+                             </button>
+                             <button 
+                                onClick={() => handleDelete(req.id)}
+                                className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
+                                title="Eliminar Solicitud"
+                             >
+                                 <Trash2 size={14}/>
+                             </button>
+                        </div>
+                    )}
                 </div>
               </div>
             ))}

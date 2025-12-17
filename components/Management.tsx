@@ -1,9 +1,10 @@
+
 import React, { useState, useMemo } from 'react';
 import { User, RequestStatus, Role, LeaveRequest } from '../types';
 import { store } from '../services/store';
 import ShiftScheduler from './ShiftScheduler';
 import RequestFormModal from './RequestFormModal';
-import { Check, X, Users, Edit2, Shield, Trash2, AlertTriangle, Briefcase, FileText, Activity, Clock, CalendarDays, ExternalLink, UserPlus, MessageSquare, PieChart, TrendingUp, Calendar, Filter, Paintbrush, Plus, CalendarClock, Search } from 'lucide-react';
+import { Check, X, Users, Edit2, Shield, Trash2, AlertTriangle, Briefcase, FileText, Activity, Clock, CalendarDays, ExternalLink, UserPlus, MessageSquare, PieChart, TrendingUp, Calendar, Filter, Paintbrush, Plus, CalendarClock, Search, CheckCircle } from 'lucide-react';
 
 export const Approvals: React.FC<{ user: User, onViewRequest: (req: LeaveRequest) => void }> = ({ user, onViewRequest }) => {
   const [pending, setPending] = useState(store.getPendingApprovalsForUser(user.id));
@@ -25,6 +26,8 @@ export const Approvals: React.FC<{ user: User, onViewRequest: (req: LeaveRequest
   };
 
   const getDurationString = (req: LeaveRequest) => {
+      if (req.typeId === 'adjustment_days') return `${req.hours && req.hours > 0 ? '+' : ''}${req.hours} días`;
+      if (req.typeId === 'overtime_adjustment') return `${req.hours && req.hours > 0 ? '+' : ''}${req.hours}h (Reg.)`;
       if (req.hours && req.hours > 0) return `${req.hours}h`;
       const start = new Date(req.startDate);
       const end = req.endDate ? new Date(req.endDate) : start;
@@ -182,6 +185,7 @@ export const Approvals: React.FC<{ user: User, onViewRequest: (req: LeaveRequest
 export const UpcomingAbsences: React.FC<{ user: User, onViewRequest: (req: LeaveRequest) => void }> = ({ user, onViewRequest }) => {
     const [filterDeptId, setFilterDeptId] = useState<string>('');
     const [filterUserId, setFilterUserId] = useState<string>('');
+    const [filterStatus, setFilterStatus] = useState<string>('');
     const [confirmAction, setConfirmAction] = useState<{reqId: string, status: RequestStatus} | null>(null);
     const [adminComment, setAdminComment] = useState('');
     const [refresh, setRefresh] = useState(0); // Trigger re-render
@@ -223,6 +227,7 @@ export const UpcomingAbsences: React.FC<{ user: User, onViewRequest: (req: Leave
         let reqs = store.requests.filter(r => {
              // Basic validity check
              if (store.isOvertimeRequest(r.typeId)) return false; // Solo ausencias
+             if (r.typeId === 'adjustment_days') return false; // No mostrar regularizaciones en próximas ausencias
              if (r.status === RequestStatus.REJECTED) return false;
 
              // Role Logic
@@ -237,6 +242,7 @@ export const UpcomingAbsences: React.FC<{ user: User, onViewRequest: (req: Leave
              // Filters
              if (filterDeptId && reqUser.departmentId !== filterDeptId) return false;
              if (filterUserId && r.userId !== filterUserId) return false;
+             if (filterStatus && r.status !== filterStatus) return false;
 
              // Date Logic (Future or Ongoing)
              const end = r.endDate || r.startDate;
@@ -246,21 +252,22 @@ export const UpcomingAbsences: React.FC<{ user: User, onViewRequest: (req: Leave
         // Sort by start date ascending (nearest first)
         return reqs.sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
 
-    }, [user, availableDepts, filterDeptId, filterUserId, refresh, store.requests]);
+    }, [user, availableDepts, filterDeptId, filterUserId, filterStatus, refresh, store.requests]);
 
     return (
         <div className="space-y-6 animate-fade-in">
              {/* FILTERS */}
-             <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex flex-col md:flex-row gap-4 items-center justify-between">
-                <div className="flex items-center gap-2">
+             <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex flex-col xl:flex-row gap-4 items-center justify-between">
+                <div className="flex items-center gap-2 mb-2 xl:mb-0">
                     <CalendarClock className="text-blue-600"/>
                     <h2 className="text-lg font-bold text-slate-800">Próximas Ausencias</h2>
                 </div>
-                <div className="flex gap-4 w-full md:w-auto">
+                <div className="flex flex-col md:flex-row gap-4 w-full xl:w-auto">
+                    {/* Dpto Filter */}
                     <div className="relative flex-1 md:w-48">
                          <Filter className="absolute left-3 top-2.5 text-slate-400 w-4 h-4"/>
                          <select 
-                            className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-50 focus:bg-white"
+                            className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-50 focus:bg-white transition-colors appearance-none cursor-pointer"
                             value={filterDeptId}
                             onChange={(e) => { setFilterDeptId(e.target.value); setFilterUserId(''); }}
                          >
@@ -268,15 +275,29 @@ export const UpcomingAbsences: React.FC<{ user: User, onViewRequest: (req: Leave
                              {availableDepts.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                          </select>
                     </div>
+                    {/* User Filter */}
                     <div className="relative flex-1 md:w-48">
                          <Search className="absolute left-3 top-2.5 text-slate-400 w-4 h-4"/>
                          <select 
-                            className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-50 focus:bg-white"
+                            className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-50 focus:bg-white transition-colors appearance-none cursor-pointer"
                             value={filterUserId}
                             onChange={(e) => setFilterUserId(e.target.value)}
                          >
                              <option value="">Todos los Usuarios</option>
                              {availableUsers.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                         </select>
+                    </div>
+                    {/* Status Filter */}
+                    <div className="relative flex-1 md:w-48">
+                         <CheckCircle className="absolute left-3 top-2.5 text-slate-400 w-4 h-4"/>
+                         <select 
+                            className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-50 focus:bg-white transition-colors appearance-none cursor-pointer"
+                            value={filterStatus}
+                            onChange={(e) => setFilterStatus(e.target.value)}
+                         >
+                             <option value="">Todos los Estados</option>
+                             <option value={RequestStatus.PENDING}>Pendientes</option>
+                             <option value={RequestStatus.APPROVED}>Aprobados</option>
                          </select>
                     </div>
                 </div>
@@ -446,6 +467,9 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [filterDeptId, setFilterDeptId] = useState<string>('');
   
+  // Estado para refrescar las listas de solicitudes cuando hay cambios
+  const [refreshTick, setRefreshTick] = useState(0);
+  
   // Estado para Creación
   const [newPassword, setNewPassword] = useState('');
 
@@ -460,6 +484,8 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
   const [requestToEdit, setRequestToEdit] = useState<LeaveRequest | null>(null);
 
   const getDurationString = (req: LeaveRequest) => {
+      if (req.typeId === 'adjustment_days') return `${req.hours && req.hours > 0 ? '+' : ''}${req.hours} días`;
+      if (req.typeId === 'overtime_adjustment') return `${req.hours && req.hours > 0 ? '+' : ''}${req.hours}h (Reg.)`;
       if (req.hours && req.hours > 0) return `${req.hours}h`;
       const start = new Date(req.startDate);
       const end = req.endDate ? new Date(req.endDate) : start;
@@ -501,6 +527,7 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
               r.userId === u.id && 
               r.status === RequestStatus.APPROVED &&
               !store.isOvertimeRequest(r.typeId) &&
+              r.typeId !== 'adjustment_days' && // Ignorar regularizaciones como ausencias actuales
               today >= r.startDate.split('T')[0] && 
               today <= (r.endDate || r.startDate).split('T')[0]
           );
@@ -513,16 +540,22 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
           return userInTeam && 
                  r.status === RequestStatus.APPROVED && 
                  !store.isOvertimeRequest(r.typeId) &&
+                 r.typeId !== 'adjustment_days' && // Ignorar regularizaciones
                  startDate > today;
       }).sort((a,b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime()).slice(0, 3);
 
       return { totalPendingDays, totalPendingHours, absentPercentage, upcomingAbsences };
-  }, [displayUsers]);
+  }, [displayUsers, refreshTick]); 
 
+  // Force re-calculation of lists when refreshTick changes
   const teamUserIds = displayUsers.map(u => u.id);
-  const teamRequests = store.requests.filter(r => teamUserIds.includes(r.userId)).sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  const teamRequests = useMemo(() => {
+     return store.requests.filter(r => teamUserIds.includes(r.userId)).sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, [displayUsers, refreshTick, store.requests.length]);
 
-  const editingUserRequests = editingUser && editingUser.id ? store.requests.filter(r => r.userId === editingUser.id).sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()) : [];
+  const editingUserRequests = useMemo(() => {
+     return editingUser && editingUser.id ? store.requests.filter(r => r.userId === editingUser.id).sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()) : [];
+  }, [editingUser, refreshTick, store.requests.length]);
 
   const openEditModal = (u: User) => {
       setEditingUser({...u});
@@ -563,14 +596,15 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
         await store.createUser(editingUser, newPassword);
     } 
     else {
+        // Actualizar datos básicos incluyendo departamento en Supabase
+        await store.updateUserAdmin(editingUser.id, {
+            name: editingUser.name,
+            email: editingUser.email,
+            departmentId: editingUser.departmentId
+        });
+
+        // Actualizar rol
         store.updateUserRole(editingUser.id, editingUser.role);
-        
-        const originalUser = store.users.find(u => u.id === editingUser.id);
-        if(originalUser) {
-            originalUser.name = editingUser.name;
-            originalUser.email = editingUser.email;
-            originalUser.departmentId = editingUser.departmentId;
-        }
 
         let newBalanceDays = editingUser.daysAvailable;
         let newBalanceHours = editingUser.overtimeHours;
@@ -578,11 +612,29 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
         if (adjustmentDays !== 0) {
             newBalanceDays += adjustmentDays;
             store.createNotification(editingUser.id, `Ajuste manual de días: ${adjustmentDays > 0 ? '+' : ''}${adjustmentDays}. Motivo: ${adjustmentReasonDays || 'Gestión Administrativa'}`);
+            
+            // CREAR REGISTRO HISTÓRICO PARA DÍAS
+            await store.createRequest({
+                typeId: 'adjustment_days',
+                label: 'Regularización Días',
+                startDate: new Date().toISOString(),
+                hours: adjustmentDays, // Usamos el campo hours para guardar el delta de días en este caso
+                reason: adjustmentReasonDays || 'Ajuste manual por Admin'
+            }, editingUser.id, RequestStatus.APPROVED);
         }
 
         if (adjustmentHours !== 0) {
             newBalanceHours += adjustmentHours;
             store.createNotification(editingUser.id, `Ajuste manual de horas: ${adjustmentHours > 0 ? '+' : ''}${adjustmentHours}h. Motivo: ${adjustmentReasonHours || 'Gestión Administrativa'}`);
+            
+            // CREAR REGISTRO HISTÓRICO PARA HORAS
+            await store.createRequest({
+                typeId: 'overtime_adjustment',
+                label: 'Regularización Horas',
+                startDate: new Date().toISOString(),
+                hours: adjustmentHours, 
+                reason: adjustmentReasonHours || 'Ajuste manual por Admin'
+            }, editingUser.id, RequestStatus.APPROVED);
         }
         
         store.updateUserBalance(editingUser.id, newBalanceDays, newBalanceHours);
@@ -590,6 +642,7 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
 
     setUsers(store.getAllUsers());
     setEditingUser(null);
+    setRefreshTick(t => t + 1); // Refrescar listas
   };
 
   const handleDeleteUser = (userId: string) => {
@@ -608,6 +661,8 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
       if(confirm('¿Borrar solicitud? Si está aprobada se devolverán los saldos correspondientes al usuario.')) {
           await store.deleteRequest(reqId);
           setUsers([...store.getAllUsers()]); // Force update in case balance changed
+          setRefreshTick(prev => prev + 1); // FORCE UI UPDATE for requests list
+          
           // Update local editing user to reflect balance changes immediately
           if (editingUser) {
               const updated = store.users.find(u => u.id === editingUser.id);
@@ -1079,7 +1134,11 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
       {/* Modal de Creación/Edición Manual (Admin) */}
       {showAdminRequestModal && requestModalTargetUser && (
           <RequestFormModal 
-             onClose={() => { setShowAdminRequestModal(false); setRequestToEdit(null); }}
+             onClose={() => { 
+                 setShowAdminRequestModal(false); 
+                 setRequestToEdit(null); 
+                 setRefreshTick(prev => prev + 1); // FORCE UI UPDATE
+             }}
              user={currentUser}
              targetUser={requestModalTargetUser}
              initialTab={requestToEdit && store.isOvertimeRequest(requestToEdit.typeId) ? 'overtime' : 'absence'}

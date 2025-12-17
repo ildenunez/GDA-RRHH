@@ -254,13 +254,14 @@ class Store {
   }
 
   isOvertimeRequest(typeId: string): boolean {
-      return typeId.startsWith('overtime_') || typeId === 'festivo_trabajado';
+      return typeId.startsWith('overtime_') || typeId === 'festivo_trabajado' || typeId === 'overtime_adjustment';
   }
 
   getAvailableOvertimeRecords(userId: string) {
+      // Modificado para incluir también festivos trabajados y registros creados por admin
       return this.requests.filter(r => 
           r.userId === userId &&
-          r.typeId === 'overtime_earn' &&
+          (r.typeId === 'overtime_earn' || r.typeId === 'festivo_trabajado') && 
           r.status === RequestStatus.APPROVED &&
           !r.isConsumed &&
           (r.hours || 0) > (r.consumedHours || 0)
@@ -356,7 +357,8 @@ class Store {
         relevantRequests = relevantRequests.filter(r => deptUserIds.includes(r.userId));
     }
 
-    return relevantRequests;
+    // Filter out regularizations from calendar
+    return relevantRequests.filter(r => r.typeId !== 'adjustment_days');
   }
 
   getAllUsers() {
@@ -398,14 +400,16 @@ class Store {
     const isCreatedByAdmin = !!targetUserId && targetUserId !== this.currentUser.id;
 
     const leaveType = this.config.leaveTypes.find(t => t.id === req.typeId);
-    let label = '';
+    let label = req.label || '';
     
-    if (leaveType) label = leaveType.label;
-    else if (req.typeId === 'overtime_earn') label = 'Horas Extra Generadas';
-    else if (req.typeId === 'overtime_pay') label = 'Cobro Horas';
-    else if (req.typeId === 'overtime_spend_days') label = 'Canje Días por Horas';
-    else if (req.typeId === 'festivo_trabajado') label = 'Festivo Trabajado';
-    else label = 'Solicitud';
+    if (!label) {
+        if (leaveType) label = leaveType.label;
+        else if (req.typeId === 'overtime_earn') label = 'Horas Extra Generadas';
+        else if (req.typeId === 'overtime_pay') label = 'Cobro Horas';
+        else if (req.typeId === 'overtime_spend_days') label = 'Canje Días por Horas';
+        else if (req.typeId === 'festivo_trabajado') label = 'Festivo Trabajado';
+        else label = 'Solicitud';
+    }
     
     const newReqPayload = {
       user_id: userId,
@@ -429,7 +433,7 @@ class Store {
         
         // Notify User
         if (isCreatedByAdmin) {
-             this.createNotification(userId, `Nueva solicitud creada por Admin: ${label} (${initialStatus})`);
+             this.createNotification(userId, `Nueva registro administrativo: ${label}`);
         } else {
              this.createNotification(userId, `Nueva solicitud creada: ${label}`);
         }
@@ -492,6 +496,11 @@ class Store {
               } else if (req.typeId === 'overtime_pay') {
                    // Si cobró horas, se las devolvemos al saldo
                    newOvertime += (req.hours || 0);
+              } else if (req.typeId === 'adjustment_days') {
+                   // Si era regularización, revertimos el ajuste (restamos lo que se sumó)
+                   newDays -= (req.hours || 0);
+              } else if (req.typeId === 'overtime_adjustment') {
+                   newOvertime -= (req.hours || 0);
               }
 
               // Guardar cambios en usuario
@@ -566,6 +575,10 @@ class Store {
              }
          }
       }
+      // NOTA: 'adjustment_days' y 'overtime_adjustment' no actualizan saldo aquí si vienen de Management.handleUpdateUser
+      // ya que allí se llama a updateUserBalance explícitamente con los valores calculados por el admin.
+      // Sin embargo, si borramos, sí usamos la lógica de reversión.
+      
       await supabase.from('users').update({ days_available: newDays, overtime_hours: newOvertime }).eq('id', user.id);
       user.daysAvailable = newDays;
       user.overtimeHours = newOvertime;
@@ -600,6 +613,7 @@ class Store {
       }
   }
 
+  // Actualización de perfil propio (nombre, email, password, avatar)
   async updateUserProfile(userId: string, data: { name: string, email: string, password?: string, avatar?: string }) {
       const userIdx = this.users.findIndex(u => u.id === userId);
       if (userIdx === -1) return;
@@ -614,6 +628,33 @@ class Store {
       } else {
           throw new Error(error.message);
       }
+  }
+
+  // Actualización de datos administrativos (nombre, email, departamento)
+  async updateUserAdmin(userId: string, data: { name: string, email: string, departmentId: string }) {
+     const userIdx = this.users.findIndex(u => u.id === userId);
+     if (userIdx === -1) return;
+     
+     const updates = { 
+         name: data.name, 
+         email: data.email, 
+         department_id: data.departmentId 
+     };
+     
+     const { error } = await supabase.from('users').update(updates).eq('id', userId);
+     
+     if (!error) {
+         const updatedUser = { 
+             ...this.users[userIdx], 
+             name: data.name, 
+             email: data.email,
+             departmentId: data.departmentId
+         };
+         this.users[userIdx] = updatedUser;
+     } else {
+         console.error("Error updating user admin details", error);
+         throw new Error(error.message);
+     }
   }
 
   async deleteUser(userId: string) {
