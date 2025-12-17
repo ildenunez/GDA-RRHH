@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { User, LeaveRequest, OvertimeUsage, RequestStatus, Role } from '../types';
 import { store } from '../services/store';
-import { X, Clock, Loader2, User as UserIcon, CalendarDays, Gift } from 'lucide-react';
+import { X, Clock, Loader2, User as UserIcon, CalendarDays, Gift, Archive } from 'lucide-react';
 
 interface RequestFormModalProps {
   onClose: () => void;
@@ -50,7 +50,7 @@ const RequestFormModal: React.FC<RequestFormModalProps> = ({ onClose, user, targ
       }
   }, [editingRequest]);
 
-  // Set default type
+  // Set default type & Load Overtime Records
   useEffect(() => {
       if (!editingRequest) {
         if (activeTab === 'absence' && absenceTypes.length > 0 && !typeId) {
@@ -60,7 +60,39 @@ const RequestFormModal: React.FC<RequestFormModalProps> = ({ onClose, user, targ
         }
       }
       if (activeTab === 'overtime') {
-          setAvailableOvertime(store.getAvailableOvertimeRecords(effectiveTargetUser.id));
+          // 1. Obtener registros reales trazables
+          const realRecords = store.getAvailableOvertimeRecords(effectiveTargetUser.id);
+          
+          // 2. Calcular si existe "Saldo Histórico" (Diferencia entre saldo total en ficha y suma de registros)
+          // Esto cubre regularizaciones antiguas, ajustes manuales previos o migraciones de datos.
+          const totalTraceable = realRecords.reduce((sum, r) => sum + ((r.hours || 0) - (r.consumedHours || 0)), 0);
+          const totalBalance = effectiveTargetUser.overtimeHours;
+          const untracedBalance = Math.max(0, totalBalance - totalTraceable); // Solo si es positivo
+
+          let recordsToShow = [...realRecords];
+
+          // Si hay saldo huérfano, crear un registro virtual seleccionable
+          if (untracedBalance > 0.01) { 
+              const historicalReq: LeaveRequest = {
+                  id: 'historical_balance',
+                  userId: effectiveTargetUser.id,
+                  typeId: 'historical',
+                  label: 'Saldo Histórico / Ajustes',
+                  startDate: new Date().toISOString(),
+                  hours: untracedBalance,
+                  consumedHours: 0,
+                  status: RequestStatus.APPROVED,
+                  createdAt: new Date().toISOString(),
+                  reason: 'Saldo acumulado anterior o ajustes manuales',
+                  // Campos opcionales dummy para satisfacer interfaz
+                  isConsumed: false,
+                  overtimeUsage: [],
+                  adminComment: ''
+              };
+              recordsToShow.push(historicalReq);
+          }
+
+          setAvailableOvertime(recordsToShow);
       }
   }, [activeTab, editingRequest, effectiveTargetUser]);
 
@@ -121,10 +153,12 @@ const RequestFormModal: React.FC<RequestFormModalProps> = ({ onClose, user, targ
     let finalOvertimeUsage: OvertimeUsage[] | undefined = undefined;
     
     if (activeTab === 'overtime' && typeId !== 'overtime_earn' && typeId !== 'festivo_trabajado') {
-        finalOvertimeUsage = Object.entries(usageMap).map(([id, hoursUsed]) => ({
-            requestId: id,
-            hoursUsed: hoursUsed as number
-        }));
+        finalOvertimeUsage = Object.entries(usageMap)
+            .filter(([id]) => id !== 'historical_balance') // No incluimos el histórico en el array de trazabilidad
+            .map(([id, hoursUsed]) => ({
+                requestId: id,
+                hoursUsed: hoursUsed as number
+            }));
     }
 
     const reqData = { 
@@ -296,6 +330,7 @@ const RequestFormModal: React.FC<RequestFormModalProps> = ({ onClose, user, targ
                            {availableOvertime.map(req => {
                                const remaining = (req.hours || 0) - (req.consumedHours || 0);
                                const isSelected = !!usageMap[req.id];
+                               const isHistorical = req.id === 'historical_balance';
                                
                                return (
                                    <div key={req.id} className={`p-3 bg-white rounded-lg border transition-all ${isSelected ? 'border-blue-400 ring-1 ring-blue-100' : 'border-slate-200'}`}>
@@ -308,10 +343,18 @@ const RequestFormModal: React.FC<RequestFormModalProps> = ({ onClose, user, targ
                                             />
                                             <div className="flex-1 text-xs">
                                                 <div className="flex justify-between font-bold text-slate-700">
-                                                    <span>{new Date(req.startDate).toLocaleDateString()}</span>
-                                                    <span>Disp: {remaining}h</span>
+                                                    <span className={isHistorical ? 'text-orange-600' : ''}>
+                                                        {isHistorical ? 'Saldo Histórico' : new Date(req.startDate).toLocaleDateString()}
+                                                    </span>
+                                                    <span>Disp: {remaining.toFixed(1)}h</span>
                                                 </div>
-                                                <div className="italic text-slate-500 truncate">{req.reason || 'Sin motivo'}</div>
+                                                <div className="italic text-slate-500 truncate">
+                                                    {isHistorical ? (
+                                                        <span className="flex items-center gap-1"><Archive size={10}/> Ajustes manuales/antiguos</span>
+                                                    ) : (
+                                                        req.reason || 'Sin motivo'
+                                                    )}
+                                                </div>
                                             </div>
                                        </div>
                                        
