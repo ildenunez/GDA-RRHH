@@ -258,10 +258,14 @@ class Store {
   }
 
   getAvailableOvertimeRecords(userId: string) {
-      // Modificado para incluir también festivos trabajados y registros creados por admin
+      // Modificado para incluir también festivos trabajados y registros creados por admin (siempre que sean positivos)
       return this.requests.filter(r => 
           r.userId === userId &&
-          (r.typeId === 'overtime_earn' || r.typeId === 'festivo_trabajado') && 
+          (
+            r.typeId === 'overtime_earn' || 
+            r.typeId === 'festivo_trabajado' || 
+            (r.typeId === 'overtime_adjustment' && (r.hours || 0) > 0)
+          ) && 
           r.status === RequestStatus.APPROVED &&
           !r.isConsumed &&
           (r.hours || 0) > (r.consumedHours || 0)
