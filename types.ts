@@ -49,8 +49,8 @@ export interface Department {
 }
 
 export interface OvertimeUsage {
-  requestId: string; // ID del registro origen (donde se ganaron las horas)
-  hoursUsed: number; // Cuantas horas se consumen de ese registro específico
+  requestId: string;
+  hoursUsed: number;
 }
 
 export interface LeaveRequest {
@@ -64,15 +64,19 @@ export interface LeaveRequest {
   reason?: string;
   status: RequestStatus;
   createdAt: string;
-  adminComment?: string; // Comentario del supervisor al aprobar/rechazar
-  createdByAdmin?: boolean; // Indicates if created by an admin on behalf of user
+  adminComment?: string;
+  createdByAdmin?: boolean;
   
   // Trazabilidad de Horas
-  isConsumed?: boolean; // Si true, este registro está AGOTADO totalmente
-  consumedHours?: number; // Cuantas horas se han gastado ya de este registro (Acumulativo)
+  isConsumed?: boolean;
+  consumedHours?: number;
   
-  // Para solicitudes de consumo (Spend/Pay)
-  overtimeUsage?: OvertimeUsage[]; // Detalle de qué registros se usaron y cuánto
+  // Para solicitudes de consumo
+  overtimeUsage?: OvertimeUsage[];
+
+  // --- NUEVOS CAMPOS PARA JUSTIFICACIONES ---
+  isJustified?: boolean; 
+  reportedToAdmin?: boolean;
 }
 
 export interface Notification {
@@ -84,7 +88,7 @@ export interface Notification {
 }
 
 export interface EmailTemplate {
-  id: string; // e.g. 'request_created', 'request_approved'
+  id: string;
   label: string;
   subject: string;
   body: string;
@@ -95,34 +99,31 @@ export interface EmailTemplate {
   };
 }
 
-// --- TURNOS ---
 export interface ShiftSegment {
-  start: string; // "09:00"
-  end: string;   // "14:00"
+  start: string;
+  end: string;
 }
 
 export interface ShiftType {
   id: string;
   name: string;
-  color: string; // Hex code
+  color: string;
   segments: ShiftSegment[];
 }
 
 export interface ShiftAssignment {
   id: string;
   userId: string;
-  date: string; // YYYY-MM-DD
+  date: string;
   shiftTypeId: string;
 }
 
-// --- FESTIVOS ---
 export interface Holiday {
   id: string;
-  date: string; // YYYY-MM-DD
+  date: string;
   name: string;
 }
 
-// --- EPIS (PPE) ---
 export interface PPEType {
   id: string;
   name: string;
@@ -132,6 +133,7 @@ export interface PPEType {
 export interface PPERequest {
   id: string;
   userId: string;
+  type_id: string; // compatibility
   typeId: string;
   size: string;
   status: 'PENDIENTE' | 'ENTREGADO';
@@ -142,10 +144,10 @@ export interface PPERequest {
 export interface AppConfig {
   leaveTypes: LeaveTypeConfig[];
   emailTemplates: EmailTemplate[];
-  shifts: string[]; // Deprecated, kept for compatibility if needed
-  shiftTypes: ShiftType[]; // New proper shift structure
-  shiftAssignments: ShiftAssignment[]; // Loaded assignments
-  holidays: Holiday[]; // Global holidays
+  shifts: string[];
+  shiftTypes: ShiftType[];
+  shiftAssignments: ShiftAssignment[];
+  holidays: Holiday[];
   ppeTypes: PPEType[];
   ppeRequests: PPERequest[];
   smtpSettings: {

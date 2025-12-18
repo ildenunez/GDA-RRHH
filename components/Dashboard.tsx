@@ -1,5 +1,4 @@
 
-
 import React, { useState } from 'react';
 import { User, RequestStatus, LeaveRequest } from '../types';
 import { store } from '../services/store';
@@ -25,13 +24,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNewRequest, onEditRequest
   const handleDelete = async (reqId: string) => {
       if(confirm('¿Seguro que deseas eliminar esta solicitud pendiente?')) {
           await store.deleteRequest(reqId);
-          setRefresh(prev => prev + 1); // Trigger refresh
+          setRefresh(prev => prev + 1);
       }
   };
 
-  const getDurationString = (req: LeaveRequest) => {
-      if (req.typeId === 'adjustment_days') return `${req.hours && req.hours > 0 ? '+' : ''}${req.hours} días`;
-      if (req.typeId === 'overtime_adjustment') return `${req.hours && req.hours > 0 ? '+' : ''}${req.hours}h (Reg.)`;
+  const getDurationString = (req: LeaveRequest): string => {
+      if (req.typeId === 'adjustment_days') return `${(req.hours || 0) > 0 ? '+' : ''}${req.hours || 0} días`;
+      if (req.typeId === 'overtime_adjustment') return `${(req.hours || 0) > 0 ? '+' : ''}${req.hours || 0}h (Reg.)`;
       
       if (req.hours && req.hours > 0) return `${req.hours}h`;
       const start = new Date(req.startDate);
@@ -47,7 +46,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNewRequest, onEditRequest
     { 
       id: 'days',
       label: 'Días Disponibles', 
-      value: user.daysAvailable.toFixed(1), 
+      value: (user.daysAvailable || 0).toFixed(1), 
       icon: Sun, 
       color: 'text-orange-500', 
       bg: 'bg-orange-50',
@@ -56,7 +55,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNewRequest, onEditRequest
     { 
       id: 'hours',
       label: 'Saldo Horas Extra', 
-      value: `${user.overtimeHours}h`, 
+      value: `${user.overtimeHours || 0}h`, 
       icon: Clock, 
       color: 'text-blue-500', 
       bg: 'bg-blue-50',
@@ -65,7 +64,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNewRequest, onEditRequest
     { 
       id: 'pending',
       label: 'Solicitudes Pendientes', 
-      value: requests.filter(r => r.status === RequestStatus.PENDING).length, 
+      value: String(requests.filter(r => r.status === RequestStatus.PENDING).length), 
       icon: AlertCircle, 
       color: 'text-yellow-500', 
       bg: 'bg-yellow-50',
@@ -75,7 +74,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNewRequest, onEditRequest
 
   const currentYear = new Date().getFullYear();
 
-  // --- CALCULO GRÁFICA HORAS EXTRA ---
   const monthlyOvertime = Array(12).fill(0);
   requests.forEach(req => {
       if (req.typeId === 'overtime_earn' && req.status === RequestStatus.APPROVED) {
@@ -86,22 +84,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNewRequest, onEditRequest
       }
   });
 
-  const chartDataOvertime = [
-    { name: 'Ene', hours: monthlyOvertime[0] },
-    { name: 'Feb', hours: monthlyOvertime[1] },
-    { name: 'Mar', hours: monthlyOvertime[2] },
-    { name: 'Abr', hours: monthlyOvertime[3] },
-    { name: 'May', hours: monthlyOvertime[4] },
-    { name: 'Jun', hours: monthlyOvertime[5] },
-    { name: 'Jul', hours: monthlyOvertime[6] },
-    { name: 'Ago', hours: monthlyOvertime[7] },
-    { name: 'Sep', hours: monthlyOvertime[8] },
-    { name: 'Oct', hours: monthlyOvertime[9] },
-    { name: 'Nov', hours: monthlyOvertime[10] },
-    { name: 'Dic', hours: monthlyOvertime[11] },
-  ];
+  const chartDataOvertime = Array.from({ length: 12 }, (_, i) => ({
+      name: ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'][i],
+      hours: monthlyOvertime[i]
+  }));
 
-  // --- CALCULO GRÁFICA DÍAS CONSUMIDOS (APROBADOS vs PENDIENTES) ---
   const monthlyAbsenceStats = Array.from({ length: 12 }, (_, i) => ({
       name: ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'][i],
       approved: 0,
@@ -109,41 +96,28 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNewRequest, onEditRequest
   }));
 
   requests.forEach(req => {
-      // Filtrar: Solo ausencias (no horas extra) y que resten días o sean vacaciones
-      // Consideramos "Consumido" si es APPROVED o PENDING
       const isAbsence = !store.isOvertimeRequest(req.typeId) && req.typeId !== 'adjustment_days';
-      
       if (isAbsence && (req.status === RequestStatus.APPROVED || req.status === RequestStatus.PENDING)) {
-          // Iterar día a día para asignar al mes correcto (por si cruza meses)
           let current = new Date(req.startDate);
           const end = new Date(req.endDate || req.startDate);
-          // Normalizar horas
           current.setHours(0,0,0,0);
           end.setHours(0,0,0,0);
 
           while (current <= end) {
               if (current.getFullYear() === currentYear) {
                   const month = current.getMonth();
-                  if (req.status === RequestStatus.APPROVED) {
-                      monthlyAbsenceStats[month].approved += 1;
-                  } else {
-                      monthlyAbsenceStats[month].pending += 1;
-                  }
+                  if (req.status === RequestStatus.APPROVED) monthlyAbsenceStats[month].approved += 1;
+                  else monthlyAbsenceStats[month].pending += 1;
               }
-              // Avanzar un día
               current.setDate(current.getDate() + 1);
           }
       }
   });
 
-  // VISTA DE DETALLE (DRILL DOWN)
   if (detailView !== 'none') {
     const isOvertimeView = detailView === 'hours';
     const title = isOvertimeView ? 'Historial de Horas Extra' : 'Historial de Ausencias';
-    
-    const filteredRequests = requests.filter(r => 
-        isOvertimeView ? store.isOvertimeRequest(r.typeId) : !store.isOvertimeRequest(r.typeId)
-    );
+    const filteredRequests = requests.filter(r => isOvertimeView ? store.isOvertimeRequest(r.typeId) : !store.isOvertimeRequest(r.typeId));
 
     return (
         <div className="space-y-6 animate-fade-in">
@@ -177,9 +151,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNewRequest, onEditRequest
                     </h3>
                 </div>
                 {filteredRequests.length === 0 ? (
-                    <div className="p-12 text-center text-slate-400">
-                        No hay registros en este historial.
-                    </div>
+                    <div className="p-12 text-center text-slate-400">No hay registros.</div>
                 ) : (
                     <div className="overflow-x-auto">
                         <table className="w-full text-left text-sm">
@@ -189,40 +161,28 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNewRequest, onEditRequest
                                     <th className="px-6 py-4 font-semibold">Fecha(s)</th>
                                     {isOvertimeView && <th className="px-6 py-4 font-semibold">Horas</th>}
                                     <th className="px-6 py-4 font-semibold">Estado</th>
-                                    <th className="px-6 py-4 font-semibold">Acciones</th>
+                                    <th className="px-6 py-4 font-semibold text-right">Acciones</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
                                 {filteredRequests.map(req => (
-                                    <tr 
-                                        key={req.id} 
-                                        onClick={() => onViewRequest(req)}
-                                        className="hover:bg-slate-50 cursor-pointer transition-colors"
-                                    >
+                                    <tr key={req.id} onClick={() => onViewRequest(req)} className="hover:bg-slate-50 cursor-pointer transition-colors">
                                         <td className="px-6 py-4">
                                             <div className="flex items-center gap-2">
-                                                <div className="font-medium text-slate-800">{req.label}</div>
-                                                {req.createdByAdmin && (
-                                                    <span className="bg-purple-100 text-purple-700 text-[10px] px-1.5 py-0.5 rounded-md font-bold flex items-center gap-0.5" title="Creada por Admin">
-                                                        <span title="ShieldCheck Icon"><ShieldCheck size={10}/></span> Admin
-                                                    </span>
-                                                )}
+                                                <div className="font-medium text-slate-800">{String(req.label)}</div>
+                                                {req.createdByAdmin && <ShieldCheck size={14} className="text-purple-500" title="Admin" />}
                                             </div>
-                                            {req.reason && <div className="text-xs text-slate-500 italic mt-1">{req.reason}</div>}
+                                            {req.reason && <div className="text-xs text-slate-500 italic mt-1">{String(req.reason)}</div>}
                                         </td>
                                         <td className="px-6 py-4 text-slate-600">
                                             {req.typeId === 'adjustment_days' || req.typeId === 'overtime_adjustment' 
-                                                ? <span className="font-medium">Ajuste Manual</span>
-                                                : <span>{new Date(req.startDate).toLocaleDateString()}{req.endDate && ` - ${new Date(req.endDate).toLocaleDateString()}`}</span>
+                                                ? 'Ajuste Manual'
+                                                : `${new Date(req.startDate).toLocaleDateString()}${req.endDate ? ' - ' + new Date(req.endDate).toLocaleDateString() : ''}`
                                             }
                                         </td>
                                         {isOvertimeView && (
-                                            <td className={`px-6 py-4 font-mono font-bold ${
-                                                req.typeId === 'overtime_adjustment' && (req.hours||0) < 0 ? 'text-red-600' :
-                                                req.typeId === 'overtime_adjustment' && (req.hours||0) > 0 ? 'text-green-600' :
-                                                'text-slate-700'
-                                            }`}>
-                                                {req.typeId === 'overtime_adjustment' && (req.hours||0) > 0 ? '+' : ''}{req.hours}h
+                                            <td className={`px-6 py-4 font-mono font-bold ${(req.hours||0) < 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                                {(req.hours||0) > 0 ? '+' : ''}{req.hours}h
                                             </td>
                                         )}
                                         <td className="px-6 py-4">
@@ -230,21 +190,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNewRequest, onEditRequest
                                                 req.status === RequestStatus.APPROVED ? 'bg-green-100 text-green-700' : 
                                                 req.status === RequestStatus.REJECTED ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'
                                             }`}>
-                                                {req.status === RequestStatus.APPROVED && <CheckCircle size={12}/>}
-                                                {req.status === RequestStatus.REJECTED && <XCircle size={12}/>}
-                                                {req.status === RequestStatus.PENDING && <AlertCircle size={12}/>}
                                                 {req.status}
                                             </span>
                                         </td>
-                                        <td className="px-6 py-4" onClick={e => e.stopPropagation()}>
+                                        <td className="px-6 py-4 text-right" onClick={e => e.stopPropagation()}>
                                             {req.status === RequestStatus.PENDING && (
-                                                <div className="flex gap-2">
-                                                    <button onClick={() => onEditRequest(req)} className="text-blue-500 hover:bg-blue-50 p-1.5 rounded-lg transition-colors" title="Editar">
-                                                        <Edit2 size={16}/>
-                                                    </button>
-                                                    <button onClick={() => handleDelete(req.id)} className="text-red-500 hover:bg-red-50 p-1.5 rounded-lg transition-colors" title="Eliminar">
-                                                        <Trash2 size={16}/>
-                                                    </button>
+                                                <div className="flex justify-end gap-2">
+                                                    <button onClick={() => onEditRequest(req)} className="text-blue-500 hover:bg-blue-50 p-1.5 rounded-lg"><Edit2 size={16}/></button>
+                                                    <button onClick={() => handleDelete(req.id)} className="text-red-500 hover:bg-red-50 p-1.5 rounded-lg"><Trash2 size={16}/></button>
                                                 </div>
                                             )}
                                         </td>
@@ -259,166 +212,70 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNewRequest, onEditRequest
     );
   }
 
-  // Helper to format string date YYYY-MM-DD to locale string without timezone shift
   const formatShiftDate = (dateStr: string) => {
       const [y, m, d] = dateStr.split('-').map(Number);
-      const date = new Date(y, m - 1, d);
-      return date.toLocaleDateString('es-ES', {weekday: 'long', day: 'numeric'});
+      return new Date(y, m - 1, d).toLocaleDateString('es-ES', {weekday: 'long', day: 'numeric'});
   };
 
-  // VISTA DASHBOARD PRINCIPAL
   return (
     <div className="space-y-6 animate-fade-in">
-      
-      {/* Quick Actions Header */}
       <div className="flex flex-col md:flex-row justify-between items-end md:items-center gap-4">
          <div>
             <h2 className="text-2xl font-bold text-slate-800">Hola, {user.name}</h2>
-            <p className="text-slate-500">Aquí tienes el resumen de tu actividad.</p>
+            <p className="text-slate-500">Resumen de tu actividad laboral.</p>
          </div>
          <div className="flex gap-3 w-full md:w-auto">
-            <button 
-                onClick={() => onNewRequest('absence')}
-                className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-xl shadow-lg shadow-blue-500/20 transition-all transform hover:-translate-y-0.5 font-medium"
-            >
-                <PlusCircle size={18}/>
-                Solicitar Ausencia
-            </button>
-            <button 
-                onClick={() => onNewRequest('overtime')}
-                className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-white text-indigo-600 border border-indigo-100 hover:bg-indigo-50 px-5 py-3 rounded-xl shadow-sm transition-all font-medium"
-            >
-                <Timer size={18}/>
-                Gestión Horas
-            </button>
-            <button 
-                onClick={() => setShowPPEModal(true)}
-                className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-orange-50 text-orange-600 border border-orange-200 hover:bg-orange-100 px-5 py-3 rounded-xl shadow-sm transition-all font-medium"
-                title="Solicitar EPI"
-            >
-                <HardHat size={18}/>
-                EPI
-            </button>
+            <button onClick={() => onNewRequest('absence')} className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-xl shadow-lg font-medium"><PlusCircle size={18}/> Ausencia</button>
+            <button onClick={() => onNewRequest('overtime')} className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-white text-indigo-600 border border-indigo-100 hover:bg-indigo-50 px-5 py-3 rounded-xl font-medium"><Timer size={18}/> Horas</button>
+            <button onClick={() => setShowPPEModal(true)} className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-orange-50 text-orange-600 border border-orange-200 hover:bg-orange-100 px-5 py-3 rounded-xl font-medium"><HardHat size={18}/> EPI</button>
          </div>
       </div>
 
-      {/* Tarjetas de Resumen Interactivas */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        {/* MI PRÓXIMO TURNO (NUEVO) */}
-        <div className="bg-gradient-to-br from-slate-800 to-slate-900 text-white p-6 rounded-2xl shadow-lg border border-slate-700 flex flex-col justify-between relative overflow-hidden">
+        <div className="bg-gradient-to-br from-slate-800 to-slate-900 text-white p-6 rounded-2xl shadow-lg relative overflow-hidden">
              <div className="absolute top-0 right-0 p-4 opacity-10"><Briefcase size={64}/></div>
-             <div>
-                 <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Mi Próximo Turno</p>
-                 {nextShiftData ? (
-                     <>
-                        <h3 className="text-xl font-bold capitalize">
-                            {formatShiftDate(nextShiftData.date)}
-                        </h3>
-                        <div className="mt-2 inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold bg-white/10 border border-white/20">
-                            <span className="w-2 h-2 rounded-full" style={{backgroundColor: nextShiftData.shift.color}}></span>
-                            {nextShiftData.shift.name}
-                        </div>
-                        <div className="mt-3 text-sm text-slate-300 font-mono">
-                            {nextShiftData.shift.segments.map(s => `${s.start}-${s.end}`).join(' / ')}
-                        </div>
-                     </>
-                 ) : (
-                     <div className="text-slate-400 italic text-sm mt-2">No tienes turnos asignados próximamente.</div>
-                 )}
-             </div>
+             <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Próximo Turno</p>
+             {nextShiftData ? (
+                 <>
+                    <h3 className="text-xl font-bold capitalize">{formatShiftDate(nextShiftData.date)}</h3>
+                    <div className="mt-2 inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold bg-white/10 border border-white/20">
+                        <span className="w-2 h-2 rounded-full" style={{backgroundColor: nextShiftData.shift.color}}></span>
+                        {nextShiftData.shift.name}
+                    </div>
+                 </>
+             ) : <div className="text-slate-400 italic text-sm mt-2">Sin turnos próximos.</div>}
         </div>
 
         {stats.map((stat) => (
-          <div 
-            key={stat.id} 
-            onClick={() => {
-                if(stat.clickable) {
-                    if (stat.id === 'days') setDetailView('days');
-                    if (stat.id === 'hours') setDetailView('hours');
-                }
-            }}
-            className={`bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between group transition-all 
-                ${stat.clickable ? 'cursor-pointer hover:shadow-md hover:border-blue-200' : ''}`}
-          >
+          <div key={stat.id} onClick={() => stat.clickable && setDetailView(stat.id as any)} className={`bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between group transition-all ${stat.clickable ? 'cursor-pointer hover:shadow-md' : ''}`}>
             <div className="flex items-center space-x-4">
-                <div className={`p-4 rounded-xl ${stat.bg}`}>
-                <stat.icon className={`w-8 h-8 ${stat.color}`} />
-                </div>
-                <div>
-                <p className="text-sm font-medium text-slate-500">{stat.label}</p>
-                <h3 className="text-2xl font-bold text-slate-800">{stat.value}</h3>
-                </div>
+                <div className={`p-4 rounded-xl ${stat.bg}`}><stat.icon className={`w-8 h-8 ${stat.color}`} /></div>
+                <div><p className="text-sm font-medium text-slate-500">{stat.label}</p><h3 className="text-2xl font-bold text-slate-800">{stat.value}</h3></div>
             </div>
-            {stat.clickable && (
-                <ChevronRight className="text-slate-300 group-hover:text-blue-500 transition-colors"/>
-            )}
+            {stat.clickable && <ChevronRight className="text-slate-300 group-hover:text-blue-500"/>}
           </div>
         ))}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        
-        {/* Solicitudes Recientes */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-          <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center">
-            <Calendar className="w-5 h-5 mr-2 text-slate-500" /> Solicitudes Recientes
-          </h3>
+          <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center"><Calendar className="w-5 h-5 mr-2 text-slate-500" /> Solicitudes Recientes</h3>
           <div className="space-y-3">
-            {requests.length === 0 && <p className="text-slate-400 text-sm">No hay solicitudes recientes.</p>}
-            {requests.slice(0, 4).map((req) => (
-              <div 
-                key={req.id} 
-                onClick={() => onViewRequest(req)}
-                className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-100 cursor-pointer hover:bg-slate-100 transition-colors group"
-              >
+            {requests.length === 0 ? <p className="text-slate-400 text-sm">No hay solicitudes.</p> : requests.slice(0, 4).map((req) => (
+              <div key={req.id} onClick={() => onViewRequest(req)} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-100 cursor-pointer hover:bg-slate-100 group">
                 <div>
                   <div className="flex items-center gap-2">
-                    <p className="font-semibold text-slate-700 text-sm">{req.label}</p>
-                    {req.createdByAdmin && (
-                        <span title="Creada por Admin">
-                            <span title="ShieldCheck Icon"><ShieldCheck size={12} className="text-purple-500"/></span>
-                        </span>
-                    )}
+                    <p className="font-semibold text-slate-700 text-sm">{String(req.label)}</p>
+                    {req.createdByAdmin && <ShieldCheck size={12} className="text-purple-500" title="Admin"/>}
                   </div>
-                  <p className="text-xs text-slate-500">
-                      {req.typeId === 'adjustment_days' || req.typeId === 'overtime_adjustment' 
-                        ? 'Ajuste Manual' 
-                        : `${new Date(req.startDate).toLocaleDateString()} ${req.endDate ? ' - ' + new Date(req.endDate).toLocaleDateString() : ''}`
-                      }
-                  </p>
-                  <div className="mt-1">
-                      <span className="text-[10px] bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded font-bold">
-                          {getDurationString(req)}
-                      </span>
-                  </div>
+                  <p className="text-xs text-slate-500">{req.typeId.includes('adjustment') ? 'Ajuste Manual' : `${new Date(req.startDate).toLocaleDateString()}`}</p>
                 </div>
                 <div className="flex items-center gap-3">
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium flex items-center gap-1
-                    ${req.status === RequestStatus.APPROVED ? 'bg-green-100 text-green-700' : 
-                        req.status === RequestStatus.REJECTED ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>
-                    {req.status === RequestStatus.APPROVED && <CheckCircle size={12}/>}
-                    {req.status === RequestStatus.REJECTED && <XCircle size={12}/>}
-                    {req.status === RequestStatus.PENDING && <AlertCircle size={12}/>}
-                    {req.status}
-                    </span>
-
-                    {/* Botones de acción para PENDIENTES */}
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${req.status === RequestStatus.APPROVED ? 'bg-green-100 text-green-700' : req.status === RequestStatus.REJECTED ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>{req.status}</span>
                     {req.status === RequestStatus.PENDING && (
                         <div className="flex gap-1" onClick={e => e.stopPropagation()}>
-                             <button 
-                                onClick={() => onEditRequest(req)}
-                                className="p-1.5 text-slate-400 hover:text-blue-500 hover:bg-blue-50 rounded transition-colors"
-                                title="Editar Solicitud"
-                             >
-                                 <Edit2 size={14}/>
-                             </button>
-                             <button 
-                                onClick={() => handleDelete(req.id)}
-                                className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
-                                title="Eliminar Solicitud"
-                             >
-                                 <Trash2 size={14}/>
-                             </button>
+                             <button onClick={() => onEditRequest(req)} className="p-1.5 text-slate-400 hover:text-blue-500"><Edit2 size={14}/></button>
+                             <button onClick={() => handleDelete(req.id)} className="p-1.5 text-slate-400 hover:text-red-500"><Trash2 size={14}/></button>
                         </div>
                     )}
                 </div>
@@ -427,53 +284,24 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNewRequest, onEditRequest
           </div>
         </div>
 
-        {/* Gráfica Ausencias Mensuales (Nueva) */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-             <h3 className="text-lg font-bold text-slate-800 mb-4">Evolución de Ausencias (Días)</h3>
+             <h3 className="text-lg font-bold text-slate-800 mb-4">Evolución Ausencias (Días)</h3>
              <div className="h-64 w-full">
                 <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={monthlyAbsenceStats}>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0"/>
-                        <XAxis dataKey="name" fontSize={12} stroke="#94a3b8" tickLine={false} axisLine={false} />
-                        <YAxis fontSize={12} stroke="#94a3b8" tickLine={false} axisLine={false} allowDecimals={false}/>
-                        <Tooltip 
-                            contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                            cursor={{fill: '#f1f5f9'}}
-                        />
-                        <Legend iconType="circle" wrapperStyle={{fontSize: '12px'}}/>
-                        <Bar dataKey="approved" name="Días Aprobados" stackId="a" fill="#22c55e" radius={[0, 0, 4, 4]} />
-                        <Bar dataKey="pending" name="Días Pendientes" stackId="a" fill="#eab308" radius={[4, 4, 0, 0]} />
+                        <XAxis dataKey="name" fontSize={12} stroke="#94a3b8" />
+                        <YAxis fontSize={12} stroke="#94a3b8" allowDecimals={false}/>
+                        <Tooltip />
+                        <Legend iconType="circle" />
+                        <Bar dataKey="approved" name="Aprobados" stackId="a" fill="#22c55e" radius={[0, 0, 4, 4]} />
+                        <Bar dataKey="pending" name="Pendientes" stackId="a" fill="#eab308" radius={[4, 4, 0, 0]} />
                     </BarChart>
                 </ResponsiveContainer>
              </div>
         </div>
-
-        {/* Gráfica Horas Extra (Full Width on mobile, 2 cols on large?) -> Let's keep grid consistency */}
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 lg:col-span-2">
-          <h3 className="text-lg font-bold text-slate-800 mb-4">Gráfica Horas extras realizadas</h3>
-          <div className="h-48 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartDataOvertime}>
-                <XAxis dataKey="name" fontSize={12} stroke="#94a3b8" tickLine={false} axisLine={false} />
-                <Tooltip 
-                  contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                  cursor={{fill: '#f1f5f9'}}
-                />
-                <Bar dataKey="hours" name="Horas" radius={[4, 4, 0, 0]}>
-                   {chartDataOvertime.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill="#3b82f6" />
-                    ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
       </div>
-
-      {showPPEModal && (
-          <PPERequestModal userId={user.id} onClose={() => setShowPPEModal(false)} />
-      )}
+      {showPPEModal && <PPERequestModal userId={user.id} onClose={() => setShowPPEModal(false)} />}
     </div>
   );
 };

@@ -106,7 +106,12 @@ class Store {
     if (this.initialized) return;
 
     try {
-        const { data: usersData } = await supabase.from('users').select('*');
+        const { data: usersData, error: uErr } = await supabase.from('users').select('*');
+        if (uErr) {
+            console.error("Error fetching users from Supabase:", uErr);
+            throw uErr;
+        }
+        
         const { data: deptsData } = await supabase.from('departments').select('*');
         const { data: reqsData } = await supabase.from('requests').select('*');
         const { data: typesData } = await supabase.from('leave_types').select('*');
@@ -115,7 +120,6 @@ class Store {
         const { data: shiftAssignmentsData } = await supabase.from('shift_assignments').select('*');
         const { data: holidaysData } = await supabase.from('holidays').select('*');
         
-        // Cargar EPIS
         const { data: ppeTypes } = await supabase.from('ppe_types').select('*');
         const { data: ppeRequests } = await supabase.from('ppe_requests').select('*');
 
@@ -131,9 +135,9 @@ class Store {
         if (typesData && typesData.length > 0) {
             this.config.leaveTypes = typesData.map((t: any) => ({
                 id: t.id,
-                label: t.label,
-                subtractsDays: t.subtracts_days,
-                fixed_range: t.fixed_range
+                label: String(t.label || ''),
+                subtractsDays: !!t.subtracts_days,
+                fixedRange: t.fixed_range
             }));
         } else {
             this.config.leaveTypes = [...DEFAULT_LEAVE_TYPES];
@@ -142,9 +146,9 @@ class Store {
         if (shiftTypesData) {
             this.config.shiftTypes = shiftTypesData.map((s: any) => ({
                 id: s.id,
-                name: s.name,
+                name: String(s.name || ''),
                 color: s.color,
-                segments: s.segments
+                segments: s.segments || []
             }));
         }
 
@@ -161,15 +165,15 @@ class Store {
             this.config.holidays = holidaysData.map((h: any) => ({
                 id: h.id,
                 date: h.date,
-                name: h.name
+                name: String(h.name || '')
             }));
         }
 
         if (ppeTypes) {
             this.config.ppeTypes = ppeTypes.map((p: any) => ({
                 id: p.id,
-                name: p.name,
-                sizes: p.sizes
+                name: String(p.name || ''),
+                sizes: p.sizes || []
             }));
         }
 
@@ -178,6 +182,7 @@ class Store {
                 id: r.id,
                 userId: r.user_id,
                 typeId: r.type_id,
+                type_id: r.type_id,
                 size: r.size,
                 status: r.status,
                 createdAt: r.created_at,
@@ -186,22 +191,24 @@ class Store {
         }
         
         this.initialized = true;
-    } catch (error) {
-        console.error("Error connecting to Supabase:", error);
+    } catch (error: any) {
+        console.error("Error fatal de inicialización:", error);
+        if (error?.message?.includes('API key')) {
+            alert("Error de conexión: Clave API de Supabase inválida.");
+        }
     }
   }
 
-  // Mapeadores
   private mapUsersFromDB(data: any[]): User[] {
       return data.map(u => ({
           id: u.id,
-          name: u.name,
-          email: u.email,
+          name: String(u.name || ''),
+          email: String(u.email || '').trim().toLowerCase(),
           role: u.role as Role,
           departmentId: u.department_id,
-          daysAvailable: u.days_available,
-          overtimeHours: u.overtime_hours,
-          avatar: u.avatar || `https://ui-avatars.com/api/?name=${u.name}&background=random`
+          daysAvailable: Number(u.days_available || 0),
+          overtimeHours: Number(u.overtime_hours || 0),
+          avatar: u.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(u.name || 'User')}&background=random`
       }));
   }
 
@@ -209,707 +216,433 @@ class Store {
       return data.map(r => ({
           id: r.id,
           userId: r.user_id,
-          type_id: r.type_id, // kept for raw db mapping reference if needed, but mainly we map to camelCase below
           typeId: r.type_id,
-          label: r.label,
+          label: String(r.label || ''),
           startDate: r.start_date,
           endDate: r.end_date,
           hours: r.hours,
           reason: r.reason,
           status: r.status as RequestStatus,
           createdAt: r.created_at,
-          isConsumed: r.is_consumed,
+          adminComment: r.admin_comment,
+          createdByAdmin: !!r.created_by_admin,
+          isConsumed: !!r.is_consumed,
           consumedHours: r.consumed_hours,
           overtimeUsage: r.overtime_usage,
-          adminComment: r.admin_comment,
-          createdByAdmin: r.created_by_admin
+          isJustified: !!r.is_justified,
+          reportedToAdmin: !!r.reported_to_admin
       }));
   }
 
   private mapNotificationsFromDB(data: any[]): Notification[] {
-      return data.map(n => ({
-          id: n.id,
-          userId: n.user_id,
-          message: n.message,
-          read: n.read,
-          date: n.created_at
-      })).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    return data.map(n => ({
+      id: n.id,
+      userId: n.user_id,
+      message: String(n.message || ''),
+      read: !!n.read,
+      date: n.date || n.created_at
+    }));
   }
 
+  // Business Logic Methods
   async login(email: string, pass: string): Promise<User | null> {
     if (!this.initialized) await this.init();
-    const user = this.users.find(u => u.email === email);
-    if (user && user.id) {
-        const { data } = await supabase.from('users').select('password').eq('id', user.id).single();
-        if (data && (data.password === pass)) {
+    
+    // Buscar el usuario por email (insensible a mayúsculas)
+    const user = this.users.find(u => u.email === email.trim().toLowerCase());
+    
+    if (user) {
+        // Verificar contraseña directamente en Supabase para mayor seguridad
+        const { data, error } = await supabase
+            .from('users')
+            .select('password')
+            .eq('id', user.id)
+            .single();
+            
+        if (error) {
+            console.error("Error verificando credenciales:", error);
+            return null;
+        }
+
+        if (data && String(data.password) === String(pass)) {
             this.currentUser = user;
             return user;
         }
     }
+    
+    console.warn(`Intento de login fallido para: ${email}`);
     return null;
   }
 
-  logout() {
-    this.currentUser = null;
+  getMyRequests(): LeaveRequest[] {
+    if (!this.currentUser) return [];
+    return this.requests.filter(r => r.userId === this.currentUser!.id).sort((a,b) => b.createdAt.localeCompare(a.createdAt));
   }
 
-  isOvertimeRequest(typeId: string): boolean {
-      return typeId.startsWith('overtime_') || typeId === 'festivo_trabajado' || typeId === 'overtime_adjustment';
+  getAllUsers(): User[] {
+    return this.users;
   }
 
-  getAvailableOvertimeRecords(userId: string) {
-      // Modificado para incluir también festivos trabajados y registros creados por admin (siempre que sean positivos)
-      return this.requests.filter(r => 
-          r.userId === userId &&
-          (
-            r.typeId === 'overtime_earn' || 
-            r.typeId === 'festivo_trabajado' || 
-            (r.typeId === 'overtime_adjustment' && (r.hours || 0) > 0)
-          ) && 
-          r.status === RequestStatus.APPROVED &&
-          !r.isConsumed &&
-          (r.hours || 0) > (r.consumedHours || 0)
-      );
-  }
-
-  getUsersByDepartment(deptId: string) {
+  getUsersByDepartment(deptId: string): User[] {
     return this.users.filter(u => u.departmentId === deptId);
   }
 
-  getMyRequests() {
-    if (!this.currentUser) return [];
-    return this.requests.filter(r => r.userId === this.currentUser!.id).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  getNotificationsForUser(userId: string): Notification[] {
+    return this.notifications.filter(n => n.userId === userId).sort((a,b) => b.date.localeCompare(a.date));
   }
 
-  getPendingApprovalsForUser(supervisorId: string) {
-    const user = this.users.find(u => u.id === supervisorId);
+  getPendingApprovalsForUser(userId: string): LeaveRequest[] {
+    const user = this.users.find(u => u.id === userId);
     if (!user) return [];
-
-    let requestsToShow: LeaveRequest[] = [];
-
+    
+    let targetDeptIds: string[] = [];
     if (user.role === Role.ADMIN) {
-        requestsToShow = this.requests.filter(r => r.status === RequestStatus.PENDING);
-    } else {
-        const myDepts = this.departments.filter(d => d.supervisorIds.includes(supervisorId)).map(d => d.id);
-        const managedUserIds = this.users.filter(u => myDepts.includes(u.departmentId)).map(u => u.id);
-        
-        requestsToShow = this.requests.filter(r => 
-          managedUserIds.includes(r.userId) && 
-          r.status === RequestStatus.PENDING &&
-          r.userId !== supervisorId
-        );
-    }
-    return requestsToShow;
-  }
-
-  // --- CONFLICT DETECTION FOR A SINGLE REQUEST ---
-  getRequestConflicts(req: LeaveRequest): LeaveRequest[] {
-      const user = this.users.find(u => u.id === req.userId);
-      if (!user) return [];
-
-      // Find other users in the same department
-      const deptUserIds = this.users
-          .filter(u => u.departmentId === user.departmentId && u.id !== user.id)
-          .map(u => u.id);
-
-      if (deptUserIds.length === 0) return [];
-
-      const start = new Date(req.startDate);
-      const end = new Date(req.endDate || req.startDate);
-      start.setHours(0,0,0,0);
-      end.setHours(0,0,0,0);
-
-      // Filter requests that are Approved or Pending, overlap in date, belong to dept members, and are NOT overtime logs
-      return this.requests.filter(other => {
-          if (!deptUserIds.includes(other.userId)) return false;
-          if (other.status !== RequestStatus.APPROVED && other.status !== RequestStatus.PENDING) return false;
-          if (this.isOvertimeRequest(other.typeId)) return false; // Usually only absences conflict
-
-          const otherStart = new Date(other.startDate);
-          const otherEnd = new Date(other.endDate || other.startDate);
-          otherStart.setHours(0,0,0,0);
-          otherEnd.setHours(0,0,0,0);
-
-          return (start <= otherEnd && end >= otherStart);
-      });
-  }
-
-  getCalendarRequests(viewerId: string, filterDeptId?: string): LeaveRequest[] {
-    const viewer = this.users.find(u => u.id === viewerId);
-    if (!viewer) return [];
-
-    let relevantRequests = [];
-
-    if (viewer.role === Role.ADMIN) {
-      relevantRequests = this.requests.filter(r => !this.isOvertimeRequest(r.typeId)); 
-    } else if (viewer.role === Role.SUPERVISOR) {
-      const myDepts = this.departments.filter(d => d.supervisorIds.includes(viewerId)).map(d => d.id);
-      const teamIds = this.users.filter(u => myDepts.includes(u.departmentId)).map(u => u.id);
-      relevantRequests = this.requests.filter(r => 
-        (r.userId === viewerId || teamIds.includes(r.userId)) &&
-        (!this.isOvertimeRequest(r.typeId))
-      );
-    } else {
-      relevantRequests = this.requests.filter(r => 
-        r.userId === viewerId && 
-        (!this.isOvertimeRequest(r.typeId))
-      );
+        targetDeptIds = this.departments.map(d => d.id);
+    } else if (user.role === Role.SUPERVISOR) {
+        targetDeptIds = this.departments.filter(d => d.supervisorIds.includes(userId)).map(d => d.id);
     }
 
-    if (filterDeptId) {
-        const deptUserIds = this.users.filter(u => u.departmentId === filterDeptId).map(u => u.id);
-        relevantRequests = relevantRequests.filter(r => deptUserIds.includes(r.userId));
+    return this.requests.filter(r => {
+        if (r.status !== RequestStatus.PENDING) return false;
+        const requester = this.users.find(u => u.id === r.userId);
+        return requester && targetDeptIds.includes(requester.departmentId);
+    });
+  }
+
+  isOvertimeRequest(typeId: string): boolean {
+    return typeId.startsWith('overtime_') || typeId === 'festivo_trabajado' || typeId === 'overtime_adjustment';
+  }
+
+  async createRequest(data: any, userId: string, status: RequestStatus = RequestStatus.PENDING) {
+    let finalLabel = data.label;
+    if (!finalLabel) {
+        if (data.typeId === 'unjustified_absence') {
+            finalLabel = 'Ausencia Justificable';
+        } else {
+            finalLabel = this.config.leaveTypes.find(t => t.id === data.typeId)?.label || data.typeId;
+        }
     }
 
-    // Filter out regularizations from calendar
-    return relevantRequests.filter(r => r.typeId !== 'adjustment_days');
-  }
-
-  getAllUsers() {
-    return [...this.users].sort((a, b) => a.name.localeCompare(b.name));
-  }
-  
-  private sendEmailNotification(action: 'created' | 'approved' | 'rejected', req: LeaveRequest) {
-      console.log(`[EMAIL] Acción: ${action} para solicitud ${req.id}`);
-  }
-
-  // --- SMTP y Emails Manuales ---
-  updateSmtpSettings(settings: AppConfig['smtpSettings']) {
-      this.config.smtpSettings = settings;
-  }
-
-  async sendManualEmail(to: string | string[], subject: string, body: string) {
-      console.log(`[SMTP] Enviando email a: ${Array.isArray(to) ? to.join(', ') : to}`);
-      return new Promise(resolve => setTimeout(resolve, 1000));
-  }
-
-  async sendMassNotification(userIds: string[], message: string) {
-      if (userIds.length === 0) return;
-      const payload = userIds.map(uid => ({ user_id: uid, message, read: false }));
-      const { data, error } = await supabase.from('notifications').insert(payload).select();
-      if (data && !error) {
-          const newNotifs = this.mapNotificationsFromDB(data);
-          this.notifications.unshift(...newNotifs);
-      } else {
-           console.error("Error sending mass notification", error);
-           alert(`Error enviando notificaciones: ${error?.message || JSON.stringify(error)}`);
-      }
-  }
-
-  async createRequest(req: Partial<LeaveRequest>, targetUserId?: string, initialStatus: RequestStatus = RequestStatus.PENDING) {
-    if (!this.currentUser) return;
-    
-    // Determine target user (current user or admin-selected user)
-    const userId = targetUserId || this.currentUser.id;
-    const isCreatedByAdmin = !!targetUserId && targetUserId !== this.currentUser.id;
-
-    const leaveType = this.config.leaveTypes.find(t => t.id === req.typeId);
-    let label = req.label || '';
-    
-    if (!label) {
-        if (leaveType) label = leaveType.label;
-        else if (req.typeId === 'overtime_earn') label = 'Horas Extra Generadas';
-        else if (req.typeId === 'overtime_pay') label = 'Cobro Horas';
-        else if (req.typeId === 'overtime_spend_days') label = 'Canje Días por Horas';
-        else if (req.typeId === 'festivo_trabajado') label = 'Festivo Trabajado';
-        else label = 'Solicitud';
-    }
-    
-    const newReqPayload = {
+    const newReq = {
       user_id: userId,
-      type_id: req.typeId || 'general',
-      label: label,
-      start_date: req.startDate!,
-      end_date: req.endDate || null,
-      hours: req.hours || 0,
-      reason: req.reason || '',
-      status: initialStatus,
-      overtime_usage: req.overtimeUsage,
-      is_consumed: false,
-      consumed_hours: 0,
-      created_by_admin: isCreatedByAdmin
+      type_id: data.typeId,
+      label: finalLabel,
+      start_date: data.startDate,
+      end_date: data.endDate,
+      hours: data.hours,
+      reason: data.reason,
+      status: status,
+      created_at: new Date().toISOString(),
+      overtime_usage: data.overtimeUsage,
+      is_justified: data.isJustified || false,
+      reported_to_admin: data.reportedToAdmin || false
     };
 
-    const { data, error } = await supabase.from('requests').insert(newReqPayload).select().single();
-    if (data && !error) {
-        const realReq = this.mapRequestsFromDB([data])[0];
-        this.requests.unshift(realReq);
-        
-        // Notify User
-        if (isCreatedByAdmin) {
-             this.createNotification(userId, `Nueva registro administrativo: ${label}`);
-        } else {
-             this.createNotification(userId, `Nueva solicitud creada: ${label}`);
-        }
-        
-        // Send Email
-        this.sendEmailNotification('created', realReq);
-
-        // If created as APPROVED, trigger balance updates immediately
-        if (initialStatus === RequestStatus.APPROVED) {
-            await this.updateRequestStatus(realReq.id, RequestStatus.APPROVED, this.currentUser.id, "Aprobada automáticamente al crear por Admin");
-        }
-
-    } else {
-        alert('Error al crear solicitud en base de datos');
-        console.error(error);
+    const { data: inserted, error } = await supabase.from('requests').insert(newReq).select().single();
+    if (error) throw error;
+    if (inserted) {
+      this.requests.push(this.mapRequestsFromDB([inserted])[0]);
+      await this.refreshUserBalances();
     }
   }
 
-  async updateRequest(reqId: string, data: Partial<LeaveRequest>) {
-    const idx = this.requests.findIndex(r => r.id === reqId);
-    if (idx === -1) return;
-    await supabase.from('requests').update({
-        start_date: data.startDate,
-        end_date: data.endDate,
-        hours: data.hours,
-        reason: data.reason,
-        overtime_usage: data.overtimeUsage
-    }).eq('id', reqId);
-    this.requests[idx] = { ...this.requests[idx], ...data };
-    this.createNotification(this.requests[idx].userId, `Solicitud actualizada`);
+  async updateRequest(id: string, data: any) {
+    const { error } = await supabase.from('requests').update({
+      type_id: data.typeId,
+      start_date: data.startDate,
+      end_date: data.endDate,
+      hours: data.hours,
+      reason: data.reason,
+      overtime_usage: data.overtimeUsage
+    }).eq('id', id);
+    if (error) throw error;
+    const idx = this.requests.findIndex(r => r.id === id);
+    if (idx !== -1) {
+      this.requests[idx] = { ...this.requests[idx], ...data };
+    }
   }
 
-  async deleteRequest(reqId: string) {
-      const req = this.requests.find(r => r.id === reqId);
-      if (!req) return;
-
-      // Si la solicitud estaba APROBADA, debemos revertir los saldos
-      if (req.status === RequestStatus.APPROVED) {
-          const user = this.users.find(u => u.id === req.userId);
-          if (user) {
-              let newDays = user.daysAvailable;
-              let newOvertime = user.overtimeHours;
-              const type = this.config.leaveTypes.find(t => t.id === req.typeId);
-
-              // 1. Revertir saldos al usuario
-              if (type && type.subtractsDays) {
-                   const days = req.endDate ? Math.ceil((new Date(req.endDate).getTime() - new Date(req.startDate).getTime()) / (1000 * 3600 * 24)) + 1 : 1;
-                   newDays += days;
-              } else if (req.typeId === 'overtime_earn') {
-                   // Si generó horas, se las quitamos
-                   newOvertime -= (req.hours || 0);
-              } else if (req.typeId === 'festivo_trabajado') {
-                   // Si trabajó un festivo (generó 1 día y 4 horas), se los quitamos
-                   newDays -= 1;
-                   newOvertime -= 4;
-              } else if (req.typeId === 'overtime_spend_days') {
-                   // Si canjeó días (gastó horas), se las devolvemos y le quitamos los días ganados
-                   newOvertime += (req.hours || 0);
-                   newDays -= ((req.hours || 0) / 8); 
-              } else if (req.typeId === 'overtime_pay') {
-                   // Si cobró horas, se las devolvemos al saldo
-                   newOvertime += (req.hours || 0);
-              } else if (req.typeId === 'adjustment_days') {
-                   // Si era regularización, revertimos el ajuste (restamos lo que se sumó)
-                   newDays -= (req.hours || 0);
-              } else if (req.typeId === 'overtime_adjustment') {
-                   newOvertime -= (req.hours || 0);
-              }
-
-              // Guardar cambios en usuario
-              user.daysAvailable = newDays;
-              user.overtimeHours = newOvertime;
-              await supabase.from('users').update({ 
-                  days_available: newDays, 
-                  overtime_hours: newOvertime 
-              }).eq('id', user.id);
-          }
-
-          // 2. Revertir uso de horas extra en registros originales (Trazabilidad)
-          if (req.overtimeUsage && req.overtimeUsage.length > 0) {
-              for (const usage of req.overtimeUsage) {
-                  const sourceReq = this.requests.find(r => r.id === usage.requestId);
-                  if (sourceReq) {
-                      const newConsumed = (sourceReq.consumedHours || 0) - usage.hoursUsed;
-                      sourceReq.consumedHours = Math.max(0, newConsumed);
-                      sourceReq.isConsumed = false; // Ya no puede estar agotado si le devolvemos horas
-                      
-                      await supabase.from('requests').update({ 
-                          consumed_hours: sourceReq.consumedHours, 
-                          is_consumed: false 
-                      }).eq('id', sourceReq.id);
-                  }
-              }
-          }
-      }
-
-      // 3. Borrar la solicitud
-      this.requests = this.requests.filter(r => r.id !== reqId);
-      await supabase.from('requests').delete().eq('id', reqId);
+  async updateRequestStatus(id: string, status: RequestStatus, adminId: string, adminComment?: string) {
+    const { error } = await supabase.from('requests').update({ status, admin_comment: adminComment }).eq('id', id);
+    if (error) throw error;
+    const idx = this.requests.findIndex(r => r.id === id);
+    if (idx !== -1) {
+      this.requests[idx].status = status;
+      this.requests[idx].adminComment = adminComment;
+      await this.refreshUserBalances();
+    }
   }
 
-  async updateRequestStatus(reqId: string, status: RequestStatus, adminId: string, comment?: string) {
-    const reqIndex = this.requests.findIndex(r => r.id === reqId);
-    if (reqIndex === -1) return;
-    const req = this.requests[reqIndex];
-    const user = this.users.find(u => u.id === req.userId);
-    let newDays = user?.daysAvailable || 0;
-    let newOvertime = user?.overtimeHours || 0;
+  async deleteRequest(id: string) {
+    const { error } = await supabase.from('requests').delete().eq('id', id);
+    if (error) throw error;
+    this.requests = this.requests.filter(r => r.id !== id);
+    await this.refreshUserBalances();
+  }
 
-    if (status === RequestStatus.APPROVED && user) {
-      const leaveType = this.config.leaveTypes.find(t => t.id === req.typeId);
-      if (leaveType) {
-          if (leaveType.subtractsDays) {
-            const days = req.endDate ? Math.ceil((new Date(req.endDate).getTime() - new Date(req.startDate).getTime()) / (1000 * 3600 * 24)) + 1 : 1;
-            newDays -= days;
-          }
-      } 
-      else if (req.typeId === 'overtime_earn') {
-        newOvertime += (req.hours || 0);
-      }
-      else if (req.typeId === 'festivo_trabajado') {
-          // Festivo Trabajado suma 1 día y 4 horas
-          newDays += 1;
-          newOvertime += 4;
-      }
-      else if (req.typeId === 'overtime_spend_days' || req.typeId === 'overtime_pay') {
-         newOvertime -= (req.hours || 0);
-         if (req.typeId === 'overtime_spend_days') newDays += ((req.hours || 0) / 8); 
-         if (req.overtimeUsage) {
-             for (const usage of req.overtimeUsage) {
-                 const sourceReq = this.requests.find(r => r.id === usage.requestId);
-                 if (sourceReq) {
-                     const newConsumed = (sourceReq.consumedHours || 0) + usage.hoursUsed;
-                     const isFullyConsumed = newConsumed >= (sourceReq.hours || 0);
-                     sourceReq.consumedHours = newConsumed;
-                     sourceReq.isConsumed = isFullyConsumed;
-                     await supabase.from('requests').update({ consumed_hours: newConsumed, is_consumed: isFullyConsumed }).eq('id', usage.requestId);
-                 }
-             }
-         }
-      }
-      // NOTA: 'adjustment_days' y 'overtime_adjustment' no actualizan saldo aquí si vienen de Management.handleUpdateUser
-      // ya que allí se llama a updateUserBalance explícitamente con los valores calculados por el admin.
-      // Sin embargo, si borramos, sí usamos la lógica de reversión.
+  async refreshUserBalances() {
+    const { data: usersData } = await supabase.from('users').select('*');
+    if (usersData) this.users = this.mapUsersFromDB(usersData);
+    if (this.currentUser) {
+      const updated = this.users.find(u => u.id === this.currentUser!.id);
+      if (updated) this.currentUser = updated;
+    }
+  }
+
+  async updateJustification(id: string, isJustified: boolean, reportedToAdmin: boolean) {
+    await supabase.from('requests').update({ is_justified: isJustified, reported_to_admin: reportedToAdmin }).eq('id', id);
+    const idx = this.requests.findIndex(r => r.id === id);
+    if (idx !== -1) {
+      this.requests[idx].isJustified = isJustified;
+      this.requests[idx].reportedToAdmin = reportedToAdmin;
+    }
+  }
+
+  getRequestConflicts(req: LeaveRequest): LeaveRequest[] {
+    const requester = this.users.find(u => u.id === req.userId);
+    if (!requester) return [];
+    
+    return this.requests.filter(r => {
+      if (r.id === req.id || r.status === RequestStatus.REJECTED || this.isOvertimeRequest(r.typeId)) return false;
+      const otherUser = this.users.find(u => u.id === r.userId);
+      if (!otherUser || otherUser.departmentId !== requester.departmentId) return false;
       
-      await supabase.from('users').update({ days_available: newDays, overtime_hours: newOvertime }).eq('id', user.id);
-      user.daysAvailable = newDays;
-      user.overtimeHours = newOvertime;
-    }
-    this.requests[reqIndex] = { ...req, status, adminComment: comment };
-    await supabase.from('requests').update({ status, admin_comment: comment }).eq('id', reqId);
-    this.createNotification(req.userId, `Tu solicitud ${req.label} ha sido ${status}`);
-    if (status === RequestStatus.APPROVED) this.sendEmailNotification('approved', req);
-    if (status === RequestStatus.REJECTED) this.sendEmailNotification('rejected', req);
+      const s1 = new Date(req.startDate).getTime();
+      const e1 = new Date(req.endDate || req.startDate).getTime();
+      const s2 = new Date(r.startDate).getTime();
+      const e2 = new Date(r.endDate || r.startDate).getTime();
+      
+      return s1 <= e2 && s2 <= e1;
+    });
   }
 
-  async createUser(userData: Omit<User, 'id'>, password: string): Promise<void> {
-      const newId = Math.random().toString(36).substr(2, 9);
-      const payload = {
-          id: newId,
-          name: userData.name,
-          email: userData.email,
-          password: password,
-          role: userData.role,
-          department_id: userData.departmentId || null, 
-          days_available: userData.daysAvailable,
-          overtime_hours: userData.overtimeHours,
-          avatar: userData.avatar
-      };
-      const { error } = await supabase.from('users').insert(payload);
-      if (!error) {
-          const newUser: User = { ...userData, id: newId };
-          this.users.push(newUser);
-      } else {
-          console.error('Error creating user', error);
-          alert('Error al crear usuario: ' + (error.message || JSON.stringify(error)));
-      }
-  }
-
-  // Actualización de perfil propio (nombre, email, password, avatar)
-  async updateUserProfile(userId: string, data: { name: string, email: string, password?: string, avatar?: string }) {
-      const userIdx = this.users.findIndex(u => u.id === userId);
-      if (userIdx === -1) return;
-      const updates: any = { name: data.name, email: data.email, avatar: data.avatar };
-      if (data.password && data.password.trim() !== '') updates.password = data.password;
-      const { error } = await supabase.from('users').update(updates).eq('id', userId);
-      if (!error) {
-          const updatedUser = { ...this.users[userIdx], name: data.name, email: data.email };
-          if (data.avatar) updatedUser.avatar = data.avatar;
-          this.users[userIdx] = updatedUser;
-          if (this.currentUser && this.currentUser.id === userId) this.currentUser = updatedUser;
-      } else {
-          throw new Error(error.message);
-      }
-  }
-
-  // Actualización de datos administrativos (nombre, email, departamento)
-  async updateUserAdmin(userId: string, data: { name: string, email: string, departmentId: string }) {
-     const userIdx = this.users.findIndex(u => u.id === userId);
-     if (userIdx === -1) return;
-     
-     const updates = { 
-         name: data.name, 
-         email: data.email, 
-         department_id: data.departmentId 
-     };
-     
-     const { error } = await supabase.from('users').update(updates).eq('id', userId);
-     
-     if (!error) {
-         const updatedUser = { 
-             ...this.users[userIdx], 
-             name: data.name, 
-             email: data.email,
-             departmentId: data.departmentId
-         };
-         this.users[userIdx] = updatedUser;
-     } else {
-         console.error("Error updating user admin details", error);
-         throw new Error(error.message);
-     }
-  }
-
-  async deleteUser(userId: string) {
-      this.users = this.users.filter(u => u.id !== userId);
-      this.requests = this.requests.filter(r => r.userId !== userId);
-      await supabase.from('users').delete().eq('id', userId);
-  }
-
-  async updateUserRole(userId: string, role: Role) {
-    const user = this.users.find(u => u.id === userId);
-    if (user) {
-        user.role = role;
-        await supabase.from('users').update({ role }).eq('id', userId);
-    }
-  }
-
-  async updateUserBalance(userId: string, days: number, hours: number) {
-     const user = this.users.find(u => u.id === userId);
-     if (user) {
-       user.daysAvailable = days;
-       user.overtimeHours = hours;
-       await supabase.from('users').update({ days_available: days, overtime_hours: hours }).eq('id', userId);
-     }
-  }
-
-  async addLeaveType(type: LeaveTypeConfig) {
-      this.config.leaveTypes.push(type);
-      await supabase.from('leave_types').insert({ id: type.id, label: type.label, subtracts_days: type.subtractsDays, fixed_range: type.fixedRange });
-  }
-
-  async updateLeaveType(updatedType: LeaveTypeConfig) {
-      const idx = this.config.leaveTypes.findIndex(t => t.id === updatedType.id);
-      if (idx !== -1) this.config.leaveTypes[idx] = updatedType;
-      await supabase.from('leave_types').update({ label: updatedType.label, subtracts_days: updatedType.subtractsDays, fixed_range: updatedType.fixedRange }).eq('id', updatedType.id);
-  }
-
-  async removeLeaveType(id: string) {
-      this.config.leaveTypes = this.config.leaveTypes.filter(t => t.id !== id);
-      await supabase.from('leave_types').delete().eq('id', id);
-  }
-
-  async addDepartment(dept: Department) {
-    this.departments.push(dept);
-    await supabase.from('departments').insert({ id: dept.id, name: dept.name, supervisor_ids: dept.supervisorIds });
-  }
-
-  async updateDepartment(dept: Department) {
-    const idx = this.departments.findIndex(d => d.id === dept.id);
-    if (idx !== -1) this.departments[idx] = dept;
-    await supabase.from('departments').update({ name: dept.name, supervisor_ids: dept.supervisorIds }).eq('id', dept.id);
-  }
-
-  async removeDepartment(id: string) {
-    this.departments = this.departments.filter(d => d.id !== id);
-    this.users.forEach(u => { if (u.departmentId === id) u.departmentId = ''; });
-    await supabase.from('departments').delete().eq('id', id);
-    await supabase.from('users').update({ department_id: null }).eq('department_id', id);
-  }
-
-  updateEmailTemplate(template: EmailTemplate) {
-      const idx = this.config.emailTemplates.findIndex(t => t.id === template.id);
-      if (idx !== -1) this.config.emailTemplates[idx] = template;
-  }
-
-  async createNotification(userId: string, message: string) {
-    const { data } = await supabase.from('notifications').insert({ user_id: userId, message, read: false }).select().single();
-    if (data) {
-        this.notifications.unshift({ id: data.id, userId: data.user_id, message: data.message, read: data.read, date: data.created_at });
-    }
-  }
-
-  getNotificationsForUser(userId: string) {
-      return this.notifications.filter(n => n.userId === userId);
-  }
-
-  async markNotificationAsRead(notifId: string) {
-      const notif = this.notifications.find(n => n.id === notifId);
-      if (notif) {
-          notif.read = true;
-          await supabase.from('notifications').update({ read: true }).eq('id', notifId);
-      }
-  }
-
-  async markAllNotificationsAsRead(userId: string) {
-      this.notifications.forEach(n => { if (n.userId === userId) n.read = true; });
-      await supabase.from('notifications').update({ read: true }).eq('user_id', userId);
-  }
-
-  async deleteNotification(notifId: string) {
-      this.notifications = this.notifications.filter(n => n.id !== notifId);
-      await supabase.from('notifications').delete().eq('id', notifId);
-  }
-
-  // --- GESTIÓN DE TURNOS ---
-  async addShiftType(st: ShiftType) {
-      this.config.shiftTypes.push(st);
-      await supabase.from('shift_types').insert({
-          id: st.id,
-          name: st.name,
-          color: st.color,
-          segments: st.segments
-      });
-  }
-
-  async updateShiftType(st: ShiftType) {
-      const idx = this.config.shiftTypes.findIndex(s => s.id === st.id);
-      if (idx !== -1) this.config.shiftTypes[idx] = st;
-      await supabase.from('shift_types').update({
-          name: st.name,
-          color: st.color,
-          segments: st.segments
-      }).eq('id', st.id);
-  }
-
-  async deleteShiftType(id: string) {
-      this.config.shiftTypes = this.config.shiftTypes.filter(s => s.id !== id);
-      await supabase.from('shift_types').delete().eq('id', id);
-  }
-
-  async assignShift(userId: string, date: string, shiftTypeId: string) {
-      // Remover asignación existente para ese día si existe (upsert lógico)
-      const existingIdx = this.config.shiftAssignments.findIndex(a => a.userId === userId && a.date === date);
-      if (existingIdx !== -1) {
-          if (shiftTypeId === '') {
-              // Borrar
-              const assignmentId = this.config.shiftAssignments[existingIdx].id;
-              this.config.shiftAssignments.splice(existingIdx, 1);
-              await supabase.from('shift_assignments').delete().eq('id', assignmentId);
-              return;
-          } else {
-              // Actualizar local
-              this.config.shiftAssignments[existingIdx].shiftTypeId = shiftTypeId;
-          }
-      } else if (shiftTypeId !== '') {
-          // Crear local placeholder (DB generará ID real, pero para UI sirve)
-          this.config.shiftAssignments.push({ id: 'temp-'+Math.random(), userId, date, shiftTypeId });
-      }
-
-      // Persistir
-      if (shiftTypeId !== '') {
-          // Upsert en DB
-          const { data } = await supabase.from('shift_assignments').upsert({
-              user_id: userId,
-              date: date,
-              shift_type_id: shiftTypeId
-          }, { onConflict: 'user_id,date' }).select().single();
-          
-          // Actualizar con ID real si volvió
-          if (data) {
-              const localIdx = this.config.shiftAssignments.findIndex(a => a.userId === userId && a.date === date);
-              if (localIdx !== -1) this.config.shiftAssignments[localIdx].id = data.id;
-          }
-      }
-  }
-
+  // Shift logic
   getShiftForUserDate(userId: string, date: string): ShiftType | undefined {
-      const assignment = this.config.shiftAssignments.find(a => a.userId === userId && a.date === date);
-      if (!assignment) return undefined;
-      return this.config.shiftTypes.find(t => t.id === assignment.shiftTypeId);
+    const assignment = this.config.shiftAssignments.find(a => a.userId === userId && a.date === date);
+    return assignment ? this.config.shiftTypes.find(s => s.id === assignment.shiftTypeId) : undefined;
   }
 
-  getNextShift(userId: string): { date: string, shift: ShiftType } | undefined {
-      // FIX: Use local today string to avoid timezone offset issues
-      const now = new Date();
-      const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-      
-      const futureAssignments = this.config.shiftAssignments
-          .filter(a => a.userId === userId && a.date >= today)
-          .sort((a,b) => a.date.localeCompare(b.date));
-      
-      if (futureAssignments.length > 0) {
-          const shift = this.config.shiftTypes.find(t => t.id === futureAssignments[0].shiftTypeId);
-          if (shift) return { date: futureAssignments[0].date, shift };
+  getNextShift(userId: string) {
+    const today = new Date().toISOString().split('T')[0];
+    const assignments = this.config.shiftAssignments
+      .filter(a => a.userId === userId && a.date >= today)
+      .sort((a,b) => a.date.localeCompare(b.date));
+    
+    if (assignments.length > 0) {
+      const shift = this.config.shiftTypes.find(s => s.id === assignments[0].shiftTypeId);
+      if (shift) return { date: assignments[0].date, shift };
+    }
+    return null;
+  }
+
+  async assignShift(user_id: string, date: string, shift_type_id: string) {
+    if (!shift_type_id) {
+      await supabase.from('shift_assignments').delete().match({ user_id, date });
+      this.config.shiftAssignments = this.config.shiftAssignments.filter(a => !(a.userId === user_id && a.date === date));
+    } else {
+      const { data, error } = await supabase.from('shift_assignments').upsert({ user_id, date, shift_type_id }).select().single();
+      if (data) {
+        const idx = this.config.shiftAssignments.findIndex(a => a.userId === user_id && a.date === date);
+        const mapped = { id: data.id, userId: data.user_id, date: data.date, shiftTypeId: data.shift_type_id };
+        if (idx !== -1) this.config.shiftAssignments[idx] = mapped;
+        else this.config.shiftAssignments.push(mapped);
       }
-      return undefined;
+    }
   }
 
-  // --- FESTIVOS ---
+  // Configuration management
+  async addLeaveType(t: LeaveTypeConfig) { 
+    await supabase.from('leave_types').insert({ id: t.id, label: t.label, subtracts_days: t.subtractsDays, fixed_range: t.fixedRange });
+    this.config.leaveTypes.push(t);
+  }
+  async updateLeaveType(t: LeaveTypeConfig) { 
+    await supabase.from('leave_types').update({ label: t.label, subtracts_days: t.subtractsDays, fixed_range: t.fixedRange }).eq('id', t.id);
+    const idx = this.config.leaveTypes.findIndex(lt => lt.id === t.id);
+    if (idx !== -1) this.config.leaveTypes[idx] = t;
+  }
+  async removeLeaveType(id: string) {
+    await supabase.from('leave_types').delete().eq('id', id);
+    this.config.leaveTypes = this.config.leaveTypes.filter(t => t.id !== id);
+  }
+
+  async addDepartment(d: Department) {
+    const { data } = await supabase.from('departments').insert({ name: d.name, supervisor_ids: d.supervisorIds }).select();
+    if (data) this.departments = data.map(dept => ({ id: dept.id, name: dept.name, supervisorIds: dept.supervisor_ids || [] }));
+  }
+  async updateDepartment(d: Department) {
+    await supabase.from('departments').update({ name: d.name, supervisor_ids: d.supervisorIds }).eq('id', d.id);
+    const idx = this.departments.findIndex(dept => dept.id === d.id);
+    if (idx !== -1) this.departments[idx] = d;
+  }
+  async removeDepartment(id: string) {
+    await supabase.from('departments').delete().eq('id', id);
+    this.departments = this.departments.filter(d => d.id !== id);
+  }
+
+  async addShiftType(s: ShiftType) {
+    await supabase.from('shift_types').insert({ name: s.name, color: s.color, segments: s.segments });
+    this.config.shiftTypes.push(s);
+  }
+  async updateShiftType(s: ShiftType) {
+    await supabase.from('shift_types').update({ name: s.name, color: s.color, segments: s.segments }).eq('id', s.id);
+    const idx = this.config.shiftTypes.findIndex(st => st.id === s.id);
+    if (idx !== -1) this.config.shiftTypes[idx] = s;
+  }
+  async deleteShiftType(id: string) {
+    await supabase.from('shift_types').delete().eq('id', id);
+    this.config.shiftTypes = this.config.shiftTypes.filter(s => s.id !== id);
+  }
+
   async addHoliday(date: string, name: string) {
-      const { data } = await supabase.from('holidays').insert({ date, name }).select().single();
-      if (data) {
-          this.config.holidays.push({ id: data.id, date: data.date, name: data.name });
-      }
+    const { data } = await supabase.from('holidays').insert({ date, name }).select().single();
+    if (data) this.config.holidays.push({ id: data.id, date: data.date, name: data.name });
   }
-
   async updateHoliday(id: string, date: string, name: string) {
-      await supabase.from('holidays').update({ date, name }).eq('id', id);
-      const idx = this.config.holidays.findIndex(h => h.id === id);
-      if (idx !== -1) {
-          this.config.holidays[idx] = { id, date, name };
-      }
+    await supabase.from('holidays').update({ date, name }).eq('id', id);
+    const idx = this.config.holidays.findIndex(h => h.id === id);
+    if (idx !== -1) this.config.holidays[idx] = { id, date, name };
   }
-
   async deleteHoliday(id: string) {
-      await supabase.from('holidays').delete().eq('id', id);
-      this.config.holidays = this.config.holidays.filter(h => h.id !== id);
+    await supabase.from('holidays').delete().eq('id', id);
+    this.config.holidays = this.config.holidays.filter(h => h.id !== id);
   }
 
-  // --- EPIS (PPE) ---
-  async addPPEType(type: Partial<PPEType>) {
-      if (!type.name || !type.sizes) return;
-      const id = type.id || type.name.toLowerCase().replace(/\s+/g, '_');
-      const { data } = await supabase.from('ppe_types').insert({ id, name: type.name, sizes: type.sizes }).select().single();
-      if (data) {
-          this.config.ppeTypes.push({ id: data.id, name: data.name, sizes: data.sizes });
-      }
+  async addPPEType(p: { name: string, sizes: string[] }) {
+    const { data } = await supabase.from('ppe_types').insert(p).select().single();
+    if (data) this.config.ppeTypes.push({ id: data.id, name: data.name, sizes: data.sizes });
   }
-
   async deletePPEType(id: string) {
-      await supabase.from('ppe_types').delete().eq('id', id);
-      this.config.ppeTypes = this.config.ppeTypes.filter(p => p.id !== id);
+    await supabase.from('ppe_types').delete().eq('id', id);
+    this.config.ppeTypes = this.config.ppeTypes.filter(p => p.id !== id);
   }
 
-  async createPPERequest(userId: string, typeId: string, size: string) {
-      const { data } = await supabase.from('ppe_requests').insert({
-          user_id: userId,
-          type_id: typeId,
-          size,
-          status: 'PENDIENTE'
-      }).select().single();
-      
-      if (data) {
-          this.config.ppeRequests.unshift({
-              id: data.id,
-              userId: data.user_id,
-              typeId: data.type_id,
-              size: data.size,
-              status: data.status,
-              createdAt: data.created_at
-          });
-          
-          // Notify Admin
-          // this.sendMassNotification(this.users.filter(u=>u.role!==Role.WORKER).map(u=>u.id), `Nueva solicitud de EPI de ${this.users.find(u=>u.id===userId)?.name}`);
-      }
+  async createPPERequest(user_id: string, type_id: string, size: string) {
+    const { data } = await supabase.from('ppe_requests').insert({ user_id, type_id, size, status: 'PENDIENTE', created_at: new Date().toISOString() }).select().single();
+    if (data) this.config.ppeRequests.unshift({
+        id: data.id,
+        userId: data.user_id,
+        typeId: data.type_id,
+        type_id: data.type_id,
+        size: data.size,
+        status: data.status,
+        createdAt: data.created_at
+    });
   }
 
-  async deliverPPERequest(reqId: string) {
-      const now = new Date().toISOString();
-      const { data } = await supabase.from('ppe_requests').update({ 
-          status: 'ENTREGADO', 
-          delivery_date: now 
-      }).eq('id', reqId).select().single();
+  async deliverPPERequest(id: string) {
+    const delivery_date = new Date().toISOString();
+    await supabase.from('ppe_requests').update({ status: 'ENTREGADO', delivery_date }).eq('id', id);
+    const idx = this.config.ppeRequests.findIndex(r => r.id === id);
+    if (idx !== -1) {
+      this.config.ppeRequests[idx].status = 'ENTREGADO';
+      this.config.ppeRequests[idx].deliveryDate = delivery_date;
+    }
+  }
 
-      if (data) {
-          const idx = this.config.ppeRequests.findIndex(r => r.id === reqId);
-          if (idx !== -1) {
-              this.config.ppeRequests[idx].status = 'ENTREGADO';
-              this.config.ppeRequests[idx].deliveryDate = now;
-              this.createNotification(this.config.ppeRequests[idx].userId, `Tu solicitud de EPI ha sido marcada como ENTREGADA.`);
-          }
-      }
+  // Admin User methods
+  async createUser(u: Partial<User>, pass: string) {
+    const { data } = await supabase.from('users').insert({
+        name: u.name,
+        email: u.email,
+        password: pass,
+        role: u.role,
+        department_id: u.departmentId,
+        days_available: u.daysAvailable,
+        overtime_hours: u.overtimeHours
+    }).select().single();
+    if (data) this.users.push(this.mapUsersFromDB([data])[0]);
+  }
+  async updateUserAdmin(id: string, data: any) {
+    await supabase.from('users').update({
+        name: data.name,
+        email: data.email,
+        department_id: data.departmentId
+    }).eq('id', id);
+    const idx = this.users.findIndex(u => u.id === id);
+    if (idx !== -1) this.users[idx] = { ...this.users[idx], ...data };
+  }
+  async updateUserRole(id: string, role: Role) {
+    await supabase.from('users').update({ role }).eq('id', id);
+    const idx = this.users.findIndex(u => u.id === id);
+    if (idx !== -1) this.users[idx].role = role;
+  }
+  async updateUserBalance(id: string, daysAvailable: number, overtimeHours: number) {
+    await supabase.from('users').update({ days_available: daysAvailable, overtime_hours: overtimeHours }).eq('id', id);
+    const idx = this.users.findIndex(u => u.id === id);
+    if (idx !== -1) {
+      this.users[idx].daysAvailable = daysAvailable;
+      this.users[idx].overtimeHours = overtimeHours;
+    }
+  }
+  async updateUserProfile(id: string, data: any) {
+    const updates: any = {
+        name: data.name,
+        email: data.email,
+        avatar: data.avatar
+    };
+    if (data.password) updates.password = data.password;
+    
+    await supabase.from('users').update(updates).eq('id', id);
+    const idx = this.users.findIndex(u => u.id === id);
+    if (idx !== -1) {
+      this.users[idx] = { ...this.users[idx], name: data.name, email: data.email, avatar: data.avatar };
+      if (this.currentUser?.id === id) this.currentUser = this.users[idx];
+    }
+  }
+  async deleteUser(id: string) {
+    await supabase.from('users').delete().eq('id', id);
+    this.users = this.users.filter(u => u.id !== id);
+  }
+
+  // Notifications
+  async markNotificationAsRead(id: string) {
+    await supabase.from('notifications').update({ read: true }).eq('id', id);
+    const idx = this.notifications.findIndex(n => n.id === id);
+    if (idx !== -1) this.notifications[idx].read = true;
+  }
+  async markAllNotificationsAsRead(userId: string) {
+    await supabase.from('notifications').update({ read: true }).eq('user_id', userId);
+    this.notifications.forEach(n => { if (n.userId === userId) n.read = true; });
+  }
+  async deleteNotification(id: string) {
+    await supabase.from('notifications').delete().eq('id', id);
+    this.notifications = this.notifications.filter(n => n.id !== id);
+  }
+  async sendMassNotification(recipients: string[], message: string) {
+    const notifs = recipients.map(uid => ({ user_id: uid, message, date: new Date().toISOString(), read: false }));
+    const { data } = await supabase.from('notifications').insert(notifs).select();
+    if (data) this.notifications.push(...this.mapNotificationsFromDB(data));
+  }
+
+  // Overtime helpers
+  getAvailableOvertimeRecords(userId: string): LeaveRequest[] {
+    return this.requests.filter(r => 
+        r.userId === userId && 
+        r.status === RequestStatus.APPROVED && 
+        (r.typeId === 'overtime_earn' || r.typeId === 'overtime_adjustment') &&
+        !r.isConsumed &&
+        (r.hours || 0) > (r.consumedHours || 0)
+    );
+  }
+
+  getCalendarRequests(userId: string, deptId?: string): LeaveRequest[] {
+    return this.requests.filter(r => {
+        if (this.isOvertimeRequest(r.typeId) && r.typeId !== 'festivo_trabajado') return false;
+        if (deptId) {
+            const u = this.users.find(usr => usr.id === r.userId);
+            return u && u.departmentId === deptId;
+        }
+        return true;
+    });
+  }
+
+  updateSmtpSettings(settings: any) {
+    this.config.smtpSettings = settings;
+  }
+
+  updateEmailTemplate(tpl: EmailTemplate) {
+    const idx = this.config.emailTemplates.findIndex(t => t.id === tpl.id);
+    if (idx !== -1) this.config.emailTemplates[idx] = tpl;
   }
 }
 
