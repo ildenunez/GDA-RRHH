@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { User, LeaveRequest, OvertimeUsage, RequestStatus, Role } from '../types';
+import { User, LeaveRequest, OvertimeUsage, RequestStatus, Role, RequestType } from '../types';
 import { store } from '../services/store';
 import { X, Clock, Loader2, User as UserIcon, CalendarDays, Gift, Archive, FileWarning } from 'lucide-react';
 
@@ -48,7 +48,7 @@ const RequestFormModal: React.FC<RequestFormModalProps> = ({ onClose, user, targ
         if (activeTab === 'absence' && absenceTypes.length > 0 && !typeId) {
             setTypeId(absenceTypes[0].id);
         } else if (activeTab === 'overtime') {
-            if (!typeId) setTypeId('overtime_earn');
+            if (!typeId) setTypeId(RequestType.OVERTIME_EARN);
         }
       }
       if (activeTab === 'overtime') {
@@ -62,7 +62,7 @@ const RequestFormModal: React.FC<RequestFormModalProps> = ({ onClose, user, targ
               recordsToShow.push({
                   id: 'historical_balance',
                   userId: effectiveTargetUser.id,
-                  typeId: 'historical',
+                  typeId: 'historico',
                   label: 'Saldo Histórico / Ajustes',
                   startDate: new Date().toISOString(),
                   hours: untracedBalance,
@@ -112,21 +112,21 @@ const RequestFormModal: React.FC<RequestFormModalProps> = ({ onClose, user, targ
     e.preventDefault();
     setIsSubmitting(true);
     let finalOvertimeUsage: OvertimeUsage[] | undefined = undefined;
-    if (activeTab === 'overtime' && !['overtime_earn', 'festivo_trabajado'].includes(typeId)) {
+    if (activeTab === 'overtime' && ![RequestType.OVERTIME_EARN, RequestType.WORKED_HOLIDAY].includes(typeId as RequestType)) {
         finalOvertimeUsage = Object.entries(usageMap)
             .filter(([id]) => id !== 'historical_balance')
             .map(([id, hoursUsed]) => ({ requestId: id, hoursUsed: hoursUsed as number }));
     }
     const reqData = { typeId, startDate, endDate, hours, reason, overtimeUsage: finalOvertimeUsage, isJustified: false, reportedToAdmin: false };
     if (editingRequest) await store.updateRequest(editingRequest.id, reqData);
-    else await store.createRequest(reqData, effectiveTargetUser.id, isManagerMode && typeId === 'unjustified_absence' ? RequestStatus.APPROVED : (isManagerMode && isAdminCreatingForOther ? adminStatus : RequestStatus.PENDING));
+    else await store.createRequest(reqData, effectiveTargetUser.id, isManagerMode && typeId === RequestType.UNJUSTIFIED ? RequestStatus.APPROVED : (isManagerMode && isAdminCreatingForOther ? adminStatus : RequestStatus.PENDING));
     setIsSubmitting(false);
     onClose();
   };
 
-  const isConsumptionType = activeTab === 'overtime' && !['overtime_earn', 'festivo_trabajado'].includes(typeId);
-  const isWorkedHoliday = typeId === 'festivo_trabajado';
-  const isUnjustified = typeId === 'unjustified_absence';
+  const isConsumptionType = activeTab === 'overtime' && ![RequestType.OVERTIME_EARN, RequestType.WORKED_HOLIDAY].includes(typeId as RequestType);
+  const isWorkedHoliday = typeId === RequestType.WORKED_HOLIDAY;
+  const isUnjustified = typeId === RequestType.UNJUSTIFIED;
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
@@ -143,7 +143,7 @@ const RequestFormModal: React.FC<RequestFormModalProps> = ({ onClose, user, targ
         
         <div className="flex mb-6 bg-slate-100 p-1 rounded-xl">
             <button disabled={!!editingRequest} onClick={() => { setActiveTab('absence'); if(absenceTypes[0]) setTypeId(absenceTypes[0].id); }} className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'absence' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}>Ausencia</button>
-            <button disabled={!!editingRequest} onClick={() => { setActiveTab('overtime'); setTypeId('overtime_earn'); setUsageMap({}); setHours(0); }} className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'overtime' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}>Gestión Horas</button>
+            <button disabled={!!editingRequest} onClick={() => { setActiveTab('overtime'); setTypeId(RequestType.OVERTIME_EARN); setUsageMap({}); setHours(0); }} className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'overtime' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}>Gestión Horas</button>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -152,7 +152,7 @@ const RequestFormModal: React.FC<RequestFormModalProps> = ({ onClose, user, targ
                 <label className="block text-sm font-medium text-slate-700 mb-1">Tipo de Registro</label>
                 <select className="w-full p-3 bg-slate-50 border-slate-200 rounded-xl" value={typeId} onChange={e => setTypeId(e.target.value)}>
                     {absenceTypes.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
-                    {isManagerMode && <option value="unjustified_absence" className="text-orange-600 font-bold">⚠️ Ausencia Justificable</option>}
+                    {isManagerMode && <option value={RequestType.UNJUSTIFIED} className="text-orange-600 font-bold">⚠️ Ausencia Justificable</option>}
                 </select>
                </div>
            )}
@@ -161,10 +161,10 @@ const RequestFormModal: React.FC<RequestFormModalProps> = ({ onClose, user, targ
                 <div>
                  <label className="block text-sm font-medium text-slate-700 mb-1">Acción</label>
                  <select className="w-full p-3 bg-slate-50 border-slate-200 rounded-xl" value={typeId} onChange={e => { setTypeId(e.target.value); setUsageMap({}); setHours(0); }}>
-                     <option value="overtime_earn">Registrar Horas Realizadas</option>
-                     <option value="festivo_trabajado">Festivo Trabajado (+1 día / +4h)</option>
-                     <option value="overtime_spend_days">Canjear por Días Libres</option>
-                     <option value="overtime_pay">Solicitar Cobro</option>
+                     <option value={RequestType.OVERTIME_EARN}>Registrar Horas Realizadas</option>
+                     <option value={RequestType.WORKED_HOLIDAY}>Festivo Trabajado (+1 día / +4h)</option>
+                     <option value={RequestType.OVERTIME_SPEND_DAYS}>Canjear por Días Libres</option>
+                     <option value={RequestType.OVERTIME_PAY}>Abono en Nómina</option>
                  </select>
                 </div>
            )}

@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { User, RequestStatus, LeaveRequest } from '../types';
+import { User, RequestStatus, LeaveRequest, RequestType } from '../types';
 import { store } from '../services/store';
 import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, Cell, Legend, YAxis, CartesianGrid } from 'recharts';
 import { Calendar, Clock, AlertCircle, CheckCircle, XCircle, Sun, PlusCircle, Timer, ChevronRight, ArrowLeft, History, Edit2, Trash2, Briefcase, ShieldCheck, HardHat } from 'lucide-react';
@@ -62,7 +62,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNewRequest, onEditRequest
 
   const monthlyOvertime = Array(12).fill(0);
   requests.forEach(req => {
-      if (req.typeId === 'overtime_earn' && req.status === RequestStatus.APPROVED) {
+      if (req.typeId === RequestType.OVERTIME_EARN && req.status === RequestStatus.APPROVED) {
           const d = new Date(req.startDate);
           if (d.getFullYear() === currentYear) {
               monthlyOvertime[d.getMonth()] += (req.hours || 0);
@@ -82,7 +82,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNewRequest, onEditRequest
   }));
 
   requests.forEach(req => {
-      const isAbsence = !store.isOvertimeRequest(req.typeId) && req.typeId !== 'adjustment_days';
+      const isAbsence = !store.isOvertimeRequest(req.typeId) && req.typeId !== RequestType.ADJUSTMENT_DAYS;
       if (isAbsence && (req.status === RequestStatus.APPROVED || req.status === RequestStatus.PENDING)) {
           let current = new Date(req.startDate);
           const end = new Date(req.endDate || req.startDate);
@@ -161,7 +161,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNewRequest, onEditRequest
                                             {req.reason && <div className="text-xs text-slate-500 italic mt-1">{String(req.reason)}</div>}
                                         </td>
                                         <td className="px-6 py-4 text-slate-600">
-                                            {req.typeId === 'adjustment_days' || req.typeId === 'overtime_adjustment' 
+                                            {[RequestType.ADJUSTMENT_DAYS, RequestType.ADJUSTMENT_OVERTIME].includes(req.typeId as RequestType)
                                                 ? 'Ajuste Manual'
                                                 : `${new Date(req.startDate).toLocaleDateString()}${req.endDate ? ' - ' + new Date(req.endDate).toLocaleDateString() : ''}`
                                             }
@@ -254,7 +254,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNewRequest, onEditRequest
                     <p className="font-semibold text-slate-700 text-sm">{String(req.label)}</p>
                     {req.createdByAdmin && <ShieldCheck size={12} className="text-purple-500" />}
                   </div>
-                  <p className="text-xs text-slate-500">{req.typeId.includes('adjustment') ? 'Ajuste Manual' : `${new Date(req.startDate).toLocaleDateString()}`}</p>
+                  <p className="text-xs text-slate-500">{(req.typeId as string).includes('ajuste') ? 'Ajuste Manual' : `${new Date(req.startDate).toLocaleDateString()}`}</p>
                 </div>
                 <div className="flex items-center gap-3">
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${req.status === RequestStatus.APPROVED ? 'bg-green-100 text-green-700' : req.status === RequestStatus.REJECTED ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>{req.status}</span>

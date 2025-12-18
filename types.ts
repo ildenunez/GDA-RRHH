@@ -22,13 +22,16 @@ export interface LeaveTypeConfig {
 }
 
 export enum RequestType {
-  VACATION = 'VACACIONES',
-  SICKNESS = 'BAJA_MEDICA',
-  PERSONAL = 'ASUNTOS_PROPIOS',
-  OVERTIME_EARN = 'HORAS_EXTRA_GENERAR',
-  OVERTIME_SPEND_DAYS = 'HORAS_EXTRA_CANJEAR_DIAS',
-  OVERTIME_PAY = 'HORAS_EXTRA_COBRAR',
-  WORKED_HOLIDAY = 'FESTIVO_TRABAJADO'
+  VACATION = 'vacaciones',
+  SICKNESS = 'baja_medica',
+  PERSONAL = 'asuntos_propios',
+  OVERTIME_EARN = 'registro_horas_extra',
+  OVERTIME_SPEND_DAYS = 'canje_horas_por_dias',
+  OVERTIME_PAY = 'abono_en_nomina',
+  WORKED_HOLIDAY = 'festivo_trabajado',
+  UNJUSTIFIED = 'ausencia_justificable',
+  ADJUSTMENT_DAYS = 'ajuste_dias',
+  ADJUSTMENT_OVERTIME = 'ajuste_horas_extra'
 }
 
 export interface User {
@@ -74,7 +77,7 @@ export interface LeaveRequest {
   // Para solicitudes de consumo
   overtimeUsage?: OvertimeUsage[];
 
-  // --- NUEVOS CAMPOS PARA JUSTIFICACIONES ---
+  // Justificaciones
   isJustified?: boolean; 
   reportedToAdmin?: boolean;
 }

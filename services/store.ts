@@ -1,11 +1,11 @@
 
-import { User, Role, Department, LeaveRequest, RequestStatus, AppConfig, Notification, LeaveTypeConfig, EmailTemplate, ShiftType, ShiftAssignment, Holiday, PPEType, PPERequest } from '../types';
+import { User, Role, Department, LeaveRequest, RequestStatus, AppConfig, Notification, LeaveTypeConfig, EmailTemplate, ShiftType, ShiftAssignment, Holiday, PPEType, PPERequest, RequestType } from '../types';
 import { supabase } from './supabase';
 
 const DEFAULT_LEAVE_TYPES: LeaveTypeConfig[] = [
   { id: 'vacaciones', label: 'Vacaciones', subtractsDays: true, fixedRange: null },
-  { id: 'baja', label: 'Baja Médica', subtractsDays: false, fixedRange: null },
-  { id: 'asuntos', label: 'Asuntos Propios', subtractsDays: true, fixedRange: null },
+  { id: 'baja_medica', label: 'Baja Médica', subtractsDays: false, fixedRange: null },
+  { id: 'asuntos_propios', label: 'Asuntos Propios', subtractsDays: true, fixedRange: null },
   { id: 'navidad', label: 'Cierre Navidad', subtractsDays: true, fixedRange: { startDate: '2024-12-24', endDate: '2024-12-31' } }
 ];
 
@@ -82,6 +82,18 @@ const DEFAULT_EMAIL_TEMPLATES: EmailTemplate[] = [
   }
 ];
 
+// Diccionario de traducción para limpiar datos antiguos de la BD
+const LABEL_TRANSLATIONS: Record<string, string> = {
+  'overtime_pay': 'Abono en Nómina',
+  'overtime_earn': 'Registro Horas Extra',
+  'overtime_spend_days': 'Canje Horas por Días',
+  'unjustified_absence': 'Ausencia Justificable',
+  'adjustment_days': 'Ajuste Días',
+  'overtime_adjustment': 'Ajuste Horas Extra',
+  'vacation': 'Vacaciones',
+  'sick_leave': 'Baja Médica'
+};
+
 class Store {
   users: User[] = [];
   departments: Department[] = [];
@@ -107,10 +119,7 @@ class Store {
 
     try {
         const { data: usersData, error: uErr } = await supabase.from('users').select('*');
-        if (uErr) {
-            console.error("Error fetching users from Supabase:", uErr);
-            throw uErr;
-        }
+        if (uErr) throw uErr;
         
         const { data: deptsData } = await supabase.from('departments').select('*');
         const { data: reqsData } = await supabase.from('requests').select('*');
@@ -119,7 +128,6 @@ class Store {
         const { data: shiftTypesData } = await supabase.from('shift_types').select('*');
         const { data: shiftAssignmentsData } = await supabase.from('shift_assignments').select('*');
         const { data: holidaysData } = await supabase.from('holidays').select('*');
-        
         const { data: ppeTypes } = await supabase.from('ppe_types').select('*');
         const { data: ppeRequests } = await supabase.from('ppe_requests').select('*');
 
@@ -193,9 +201,6 @@ class Store {
         this.initialized = true;
     } catch (error: any) {
         console.error("Error fatal de inicialización:", error);
-        if (error?.message?.includes('API key')) {
-            alert("Error de conexión: Clave API de Supabase inválida.");
-        }
     }
   }
 
@@ -213,25 +218,47 @@ class Store {
   }
 
   private mapRequestsFromDB(data: any[]): LeaveRequest[] {
-      return data.map(r => ({
-          id: r.id,
-          userId: r.user_id,
-          typeId: r.type_id,
-          label: String(r.label || ''),
-          startDate: r.start_date,
-          endDate: r.end_date,
-          hours: r.hours,
-          reason: r.reason,
-          status: r.status as RequestStatus,
-          createdAt: r.created_at,
-          adminComment: r.admin_comment,
-          createdByAdmin: !!r.created_by_admin,
-          isConsumed: !!r.is_consumed,
-          consumedHours: r.consumed_hours,
-          overtimeUsage: r.overtime_usage,
-          isJustified: !!r.is_justified,
-          reportedToAdmin: !!r.reported_to_admin
-      }));
+      return data.map(r => {
+          let typeId = r.type_id;
+          // Normalización de IDs técnicos antiguos a español
+          if (typeId === 'overtime_earn') typeId = RequestType.OVERTIME_EARN;
+          if (typeId === 'overtime_pay') typeId = RequestType.OVERTIME_PAY;
+          if (typeId === 'overtime_spend_days') typeId = RequestType.OVERTIME_SPEND_DAYS;
+          if (typeId === 'unjustified_absence') typeId = RequestType.UNJUSTIFIED;
+          if (typeId === 'adjustment_days') typeId = RequestType.ADJUSTMENT_DAYS;
+          if (typeId === 'overtime_adjustment') typeId = RequestType.ADJUSTMENT_OVERTIME;
+
+          // Limpieza de etiquetas antiguas guardadas en inglés
+          let label = String(r.label || '');
+          if (LABEL_TRANSLATIONS[label]) {
+              label = LABEL_TRANSLATIONS[label];
+          } else if (LABEL_TRANSLATIONS[typeId]) {
+              // Si la etiqueta está vacía o es igual al ID, usamos la traducción
+              if (!label || label === typeId) {
+                  label = LABEL_TRANSLATIONS[typeId];
+              }
+          }
+
+          return {
+            id: r.id,
+            userId: r.user_id,
+            typeId: typeId,
+            label: label,
+            startDate: r.start_date,
+            endDate: r.end_date,
+            hours: r.hours,
+            reason: r.reason,
+            status: r.status as RequestStatus,
+            createdAt: r.created_at,
+            adminComment: r.admin_comment,
+            createdByAdmin: !!r.created_by_admin,
+            isConsumed: !!r.is_consumed,
+            consumedHours: r.consumed_hours,
+            overtimeUsage: r.overtime_usage,
+            isJustified: !!r.is_justified,
+            reportedToAdmin: !!r.reported_to_admin
+          };
+      });
   }
 
   private mapNotificationsFromDB(data: any[]): Notification[] {
@@ -244,33 +271,16 @@ class Store {
     }));
   }
 
-  // Business Logic Methods
   async login(email: string, pass: string): Promise<User | null> {
     if (!this.initialized) await this.init();
-    
-    // Buscar el usuario por email (insensible a mayúsculas)
     const user = this.users.find(u => u.email === email.trim().toLowerCase());
-    
     if (user) {
-        // Verificar contraseña directamente en Supabase para mayor seguridad
-        const { data, error } = await supabase
-            .from('users')
-            .select('password')
-            .eq('id', user.id)
-            .single();
-            
-        if (error) {
-            console.error("Error verificando credenciales:", error);
-            return null;
-        }
-
-        if (data && String(data.password) === String(pass)) {
+        const { data, error } = await supabase.from('users').select('password').eq('id', user.id).single();
+        if (!error && data && String(data.password) === String(pass)) {
             this.currentUser = user;
             return user;
         }
     }
-    
-    console.warn(`Intento de login fallido para: ${email}`);
     return null;
   }
 
@@ -310,14 +320,29 @@ class Store {
   }
 
   isOvertimeRequest(typeId: string): boolean {
-    return typeId.startsWith('overtime_') || typeId === 'festivo_trabajado' || typeId === 'overtime_adjustment';
+    const overtimeIds = [
+        RequestType.OVERTIME_EARN,
+        RequestType.OVERTIME_PAY,
+        RequestType.OVERTIME_SPEND_DAYS,
+        RequestType.WORKED_HOLIDAY,
+        RequestType.ADJUSTMENT_OVERTIME
+    ];
+    return overtimeIds.includes(typeId as RequestType) || typeId.startsWith('overtime_');
   }
 
   async createRequest(data: any, userId: string, status: RequestStatus = RequestStatus.PENDING) {
     let finalLabel = data.label;
     if (!finalLabel) {
-        if (data.typeId === 'unjustified_absence') {
+        if (data.typeId === RequestType.UNJUSTIFIED) {
             finalLabel = 'Ausencia Justificable';
+        } else if (data.typeId === RequestType.OVERTIME_PAY) {
+            finalLabel = 'Abono en Nómina';
+        } else if (data.typeId === RequestType.OVERTIME_EARN) {
+            finalLabel = 'Registro Horas Extra';
+        } else if (data.typeId === RequestType.OVERTIME_SPEND_DAYS) {
+            finalLabel = 'Canje Horas por Días';
+        } else if (data.typeId === RequestType.WORKED_HOLIDAY) {
+            finalLabel = 'Festivo Trabajado';
         } else {
             finalLabel = this.config.leaveTypes.find(t => t.id === data.typeId)?.label || data.typeId;
         }
@@ -335,7 +360,7 @@ class Store {
       created_at: new Date().toISOString(),
       overtime_usage: data.overtimeUsage,
       is_justified: data.isJustified || false,
-      reported_to_admin: data.reportedToAdmin || false
+      reported_to_admin: data.reported_to_admin || false
     };
 
     const { data: inserted, error } = await supabase.from('requests').insert(newReq).select().single();
@@ -416,7 +441,6 @@ class Store {
     });
   }
 
-  // Shift logic
   getShiftForUserDate(userId: string, date: string): ShiftType | undefined {
     const assignment = this.config.shiftAssignments.find(a => a.userId === userId && a.date === date);
     return assignment ? this.config.shiftTypes.find(s => s.id === assignment.shiftTypeId) : undefined;
@@ -450,7 +474,6 @@ class Store {
     }
   }
 
-  // Configuration management
   async addLeaveType(t: LeaveTypeConfig) { 
     await supabase.from('leave_types').insert({ id: t.id, label: t.label, subtracts_days: t.subtractsDays, fixed_range: t.fixedRange });
     this.config.leaveTypes.push(t);
@@ -539,7 +562,6 @@ class Store {
     }
   }
 
-  // Admin User methods
   async createUser(u: Partial<User>, pass: string) {
     const { data } = await supabase.from('users').insert({
         name: u.name,
@@ -594,7 +616,6 @@ class Store {
     this.users = this.users.filter(u => u.id !== id);
   }
 
-  // Notifications
   async markNotificationAsRead(id: string) {
     await supabase.from('notifications').update({ read: true }).eq('id', id);
     const idx = this.notifications.findIndex(n => n.id === id);
@@ -614,12 +635,11 @@ class Store {
     if (data) this.notifications.push(...this.mapNotificationsFromDB(data));
   }
 
-  // Overtime helpers
   getAvailableOvertimeRecords(userId: string): LeaveRequest[] {
     return this.requests.filter(r => 
         r.userId === userId && 
         r.status === RequestStatus.APPROVED && 
-        (r.typeId === 'overtime_earn' || r.typeId === 'overtime_adjustment') &&
+        (r.typeId === RequestType.OVERTIME_EARN || r.typeId === RequestType.ADJUSTMENT_OVERTIME) &&
         !r.isConsumed &&
         (r.hours || 0) > (r.consumedHours || 0)
     );
@@ -627,7 +647,7 @@ class Store {
 
   getCalendarRequests(userId: string, deptId?: string): LeaveRequest[] {
     return this.requests.filter(r => {
-        if (this.isOvertimeRequest(r.typeId) && r.typeId !== 'festivo_trabajado') return false;
+        if (this.isOvertimeRequest(r.typeId) && r.typeId !== RequestType.WORKED_HOLIDAY) return false;
         if (deptId) {
             const u = this.users.find(usr => usr.id === r.userId);
             return u && u.departmentId === deptId;

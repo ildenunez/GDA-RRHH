@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo } from 'react';
-import { User, RequestStatus, Role, LeaveRequest } from '../types';
+import { User, RequestStatus, Role, LeaveRequest, RequestType } from '../types';
 import { store } from '../services/store';
 import ShiftScheduler from './ShiftScheduler';
 import RequestFormModal from './RequestFormModal';
@@ -31,7 +31,7 @@ export const JustificationControl: React.FC<{ user: User, onViewRequest: (req: L
 
     const filteredRequests = useMemo(() => {
         return store.requests.filter(r => {
-            if (r.typeId !== 'unjustified_absence') return false;
+            if (r.typeId !== RequestType.UNJUSTIFIED) return false;
             const reqUser = store.users.find(u => u.id === r.userId);
             if (!reqUser) return false;
             if (user.role === Role.SUPERVISOR) {
@@ -175,8 +175,8 @@ export const Approvals: React.FC<{ user: User, onViewRequest: (req: LeaveRequest
   };
 
   const getDurationString = (req: LeaveRequest): string => {
-      if (req.typeId === 'adjustment_days') return `${(req.hours || 0) > 0 ? '+' : ''}${req.hours || 0} días`;
-      if (req.typeId === 'overtime_adjustment') return `${(req.hours || 0) > 0 ? '+' : ''}${req.hours || 0}h (Reg.)`;
+      if (req.typeId === RequestType.ADJUSTMENT_DAYS) return `${(req.hours || 0) > 0 ? '+' : ''}${req.hours || 0} días`;
+      if (req.typeId === RequestType.ADJUSTMENT_OVERTIME) return `${(req.hours || 0) > 0 ? '+' : ''}${req.hours || 0}h (Reg.)`;
       if (req.hours && req.hours > 0) return `${req.hours}h`;
       const start = new Date(req.startDate);
       const end = req.endDate ? new Date(req.endDate) : start;
@@ -278,7 +278,7 @@ export const UpcomingAbsences: React.FC<{ user: User, onViewRequest: (req: Leave
     const upcomingRequests = useMemo(() => {
         const today = new Date().toISOString().split('T')[0];
         return store.requests.filter(r => {
-             if (store.isOvertimeRequest(r.typeId) || r.typeId === 'adjustment_days' || r.status === RequestStatus.REJECTED) return false;
+             if (store.isOvertimeRequest(r.typeId) || r.typeId === RequestType.ADJUSTMENT_DAYS || r.status === RequestStatus.REJECTED) return false;
              const reqUser = store.users.find(u => u.id === r.userId);
              if (!reqUser) return false;
              const myDepts = user.role === Role.ADMIN ? store.departments.map(d=>d.id) : store.departments.filter(d=>d.supervisorIds.includes(user.id)).map(d=>d.id);
@@ -390,7 +390,7 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
               r.userId === u.id && 
               r.status === RequestStatus.APPROVED &&
               !store.isOvertimeRequest(r.typeId) &&
-              r.typeId !== 'adjustment_days' &&
+              r.typeId !== RequestType.ADJUSTMENT_DAYS &&
               today >= r.startDate.split('T')[0] && 
               today <= (r.endDate || r.startDate).split('T')[0]
           );
@@ -399,7 +399,7 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
       const upcomingAbsences = store.requests.filter(r => {
           const userInTeam = displayUsers.find(u => u.id === r.userId);
           const startDate = r.startDate.split('T')[0];
-          return userInTeam && r.status === RequestStatus.APPROVED && !store.isOvertimeRequest(r.typeId) && r.typeId !== 'adjustment_days' && startDate > today;
+          return userInTeam && r.status === RequestStatus.APPROVED && !store.isOvertimeRequest(r.typeId) && r.typeId !== RequestType.ADJUSTMENT_DAYS && startDate > today;
       }).sort((a,b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime()).slice(0, 3);
 
       return { totalPendingDays, totalPendingHours, absentPercentage, upcomingAbsences };
@@ -436,7 +436,7 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
         if (adjustmentDays !== 0) {
             newBalanceDays += adjustmentDays;
             await store.createRequest({ 
-                typeId: 'adjustment_days', 
+                typeId: RequestType.ADJUSTMENT_DAYS, 
                 label: 'Regularización Días', 
                 startDate: new Date().toISOString(), 
                 hours: adjustmentDays, 
@@ -446,7 +446,7 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
         if (adjustmentHours !== 0) {
             newBalanceHours += adjustmentHours;
             await store.createRequest({ 
-                typeId: 'overtime_adjustment', 
+                typeId: RequestType.ADJUSTMENT_OVERTIME, 
                 label: 'Regularización Horas', 
                 startDate: new Date().toISOString(), 
                 hours: adjustmentHours, 
@@ -461,8 +461,8 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
   };
 
   const getDurationString = (req: LeaveRequest): string => {
-      if (req.typeId === 'adjustment_days') return `${(req.hours || 0) > 0 ? '+' : ''}${req.hours || 0}d`;
-      if (req.typeId === 'overtime_adjustment') return `${(req.hours || 0) > 0 ? '+' : ''}${req.hours || 0}h`;
+      if (req.typeId === RequestType.ADJUSTMENT_DAYS) return `${(req.hours || 0) > 0 ? '+' : ''}${req.hours || 0}d`;
+      if (req.typeId === RequestType.ADJUSTMENT_OVERTIME) return `${(req.hours || 0) > 0 ? '+' : ''}${req.hours || 0}h`;
       if (req.hours && req.hours > 0) return `${req.hours}h`;
       const start = new Date(req.startDate);
       const end = req.endDate ? new Date(req.endDate) : start;
