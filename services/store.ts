@@ -82,7 +82,6 @@ const DEFAULT_EMAIL_TEMPLATES: EmailTemplate[] = [
   }
 ];
 
-// Diccionario de traducción para limpiar datos antiguos de la BD
 const LABEL_TRANSLATIONS: Record<string, string> = {
   'overtime_pay': 'Abono en Nómina',
   'overtime_earn': 'Registro Horas Extra',
@@ -220,7 +219,6 @@ class Store {
   private mapRequestsFromDB(data: any[]): LeaveRequest[] {
       return data.map(r => {
           let typeId = r.type_id;
-          // Normalización de IDs técnicos antiguos a español
           if (typeId === 'overtime_earn') typeId = RequestType.OVERTIME_EARN;
           if (typeId === 'overtime_pay') typeId = RequestType.OVERTIME_PAY;
           if (typeId === 'overtime_spend_days') typeId = RequestType.OVERTIME_SPEND_DAYS;
@@ -228,12 +226,10 @@ class Store {
           if (typeId === 'adjustment_days') typeId = RequestType.ADJUSTMENT_DAYS;
           if (typeId === 'overtime_adjustment') typeId = RequestType.ADJUSTMENT_OVERTIME;
 
-          // Limpieza de etiquetas antiguas guardadas en inglés
           let label = String(r.label || '');
           if (LABEL_TRANSLATIONS[label]) {
               label = LABEL_TRANSLATIONS[label];
           } else if (LABEL_TRANSLATIONS[typeId]) {
-              // Si la etiqueta está vacía o es igual al ID, usamos la traducción
               if (!label || label === typeId) {
                   label = LABEL_TRANSLATIONS[typeId];
               }
@@ -369,6 +365,31 @@ class Store {
       this.requests.push(this.mapRequestsFromDB([inserted])[0]);
       await this.refreshUserBalances();
     }
+  }
+
+  async startNewYear() {
+      const nextYear = new Date().getFullYear() + 1;
+      const concept = `Vacaciones ${nextYear}`;
+      
+      // Procesamos a todos los usuarios
+      for (const user of this.users) {
+          const newBalance = (user.daysAvailable || 0) + 31;
+          
+          // 1. Actualizar el saldo en la BD
+          await this.updateUserBalance(user.id, newBalance, user.overtimeHours);
+          
+          // 2. Crear el registro de ajuste para el histórico
+          await this.createRequest({
+              typeId: RequestType.ADJUSTMENT_DAYS,
+              label: concept,
+              startDate: new Date().toISOString(),
+              hours: 31,
+              reason: 'Carga automática de inicio de año'
+          }, user.id, RequestStatus.APPROVED);
+      }
+      
+      // Refrescar datos locales
+      await this.refreshUserBalances();
   }
 
   async updateRequest(id: string, data: any) {

@@ -4,7 +4,7 @@ import { User, RequestStatus, Role, LeaveRequest, RequestType } from '../types';
 import { store } from '../services/store';
 import ShiftScheduler from './ShiftScheduler';
 import RequestFormModal from './RequestFormModal';
-import { Check, X, Users, Edit2, Shield, Trash2, AlertTriangle, Briefcase, FileText, Activity, Clock, CalendarDays, ExternalLink, UserPlus, MessageSquare, PieChart, Calendar, Filter, Paintbrush, Plus, CalendarClock, Search, CheckCircle, FileWarning, Printer, CheckSquare, Square, Lock as LockIcon } from 'lucide-react';
+import { Check, X, Users, Edit2, Shield, Trash2, AlertTriangle, Briefcase, FileText, Activity, Clock, CalendarDays, ExternalLink, UserPlus, MessageSquare, PieChart, Calendar, Filter, Paintbrush, Plus, CalendarClock, Search, CheckCircle, FileWarning, Printer, CheckSquare, Square, Lock as LockIcon, Sparkles, Loader2 } from 'lucide-react';
 
 export const JustificationControl: React.FC<{ user: User, onViewRequest: (req: LeaveRequest) => void }> = ({ user, onViewRequest }) => {
     const [filterDeptId, setFilterDeptId] = useState<string>('');
@@ -360,6 +360,7 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
   const [filterDeptId, setFilterDeptId] = useState<string>('');
   const [refreshTick, setRefreshTick] = useState(0);
   const [newPassword, setNewPassword] = useState('');
+  const [isProcessingNewYear, setIsProcessingNewYear] = useState(false);
   
   // States para ajustes de saldo
   const [adjustmentDays, setAdjustmentDays] = useState<number>(0);
@@ -460,6 +461,23 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
     setRefreshTick(t => t + 1);
   };
 
+  const handleStartNewYear = async () => {
+      const nextYear = new Date().getFullYear() + 1;
+      if (!confirm(`¿Estás seguro de iniciar el nuevo ciclo anual?\n\nSe sumarán 31 días a TODOS los trabajadores con el concepto 'Vacaciones ${nextYear}'.\n\nEsta acción es masiva y no se puede deshacer fácilmente.`)) return;
+
+      setIsProcessingNewYear(true);
+      try {
+          await store.startNewYear();
+          setUsers(store.getAllUsers());
+          setRefreshTick(t => t + 1);
+          alert('Nuevo año iniciado correctamente para todos los empleados.');
+      } catch (e) {
+          alert('Hubo un error al procesar el cambio de año.');
+      } finally {
+          setIsProcessingNewYear(false);
+      }
+  };
+
   const getDurationString = (req: LeaveRequest): string => {
       if (req.typeId === RequestType.ADJUSTMENT_DAYS) return `${(req.hours || 0) > 0 ? '+' : ''}${req.hours || 0}d`;
       if (req.typeId === RequestType.ADJUSTMENT_OVERTIME) return `${(req.hours || 0) > 0 ? '+' : ''}${req.hours || 0}h`;
@@ -542,9 +560,28 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
         <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
             <div className="p-6 border-b flex flex-col md:flex-row justify-between items-center gap-4">
                 <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2"><Users className="text-blue-600"/> Gestión de Usuarios</h2>
-                <div className="flex gap-3 items-center w-full md:w-auto">
+                <div className="flex flex-col md:flex-row gap-3 items-center w-full md:w-auto">
                     <select className="w-full md:w-48 p-2 border border-slate-200 rounded-lg text-sm bg-slate-50 focus:bg-white transition-all" value={filterDeptId} onChange={(e) => setFilterDeptId(e.target.value)}><option value="">Todos los Dptos.</option>{(currentUser.role === Role.ADMIN ? store.departments : store.departments.filter(d => d.supervisorIds.includes(currentUser.id))).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}</select>
-                    {currentUser.role === Role.ADMIN && <button onClick={() => { setAdjustmentDays(0); setAdjustmentHours(0); setEditingUser({ id: '', name: '', email: '', role: Role.WORKER, departmentId: store.departments[0]?.id || '', daysAvailable: 22, overtimeHours: 0 }); }} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 shadow-lg shadow-blue-500/20 transition-all"><UserPlus size={16}/> Nuevo</button>}
+                    <div className="flex gap-2 w-full md:w-auto">
+                        {currentUser.role === Role.ADMIN && (
+                            <button 
+                                onClick={handleStartNewYear} 
+                                disabled={isProcessingNewYear}
+                                className="flex-1 md:flex-none bg-orange-100 text-orange-700 hover:bg-orange-200 px-4 py-2 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-all border border-orange-200"
+                            >
+                                {isProcessingNewYear ? <Loader2 size={16} className="animate-spin"/> : <Sparkles size={16}/>}
+                                Iniciar nuevo año
+                            </button>
+                        )}
+                        {currentUser.role === Role.ADMIN && (
+                            <button 
+                                onClick={() => { setAdjustmentDays(0); setAdjustmentHours(0); setEditingUser({ id: '', name: '', email: '', role: Role.WORKER, departmentId: store.departments[0]?.id || '', daysAvailable: 22, overtimeHours: 0 }); }} 
+                                className="flex-1 md:flex-none bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center justify-center gap-2 shadow-lg shadow-blue-500/20 transition-all"
+                            >
+                                <UserPlus size={16}/> Nuevo
+                            </button>
+                        )}
+                    </div>
                 </div>
             </div>
             <div className="overflow-x-auto">
@@ -697,7 +734,7 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
                                                     {new Date(req.startDate).toLocaleDateString()}
                                                 </td>
                                                 <td className="px-4 py-3 text-center">
-                                                    <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${req.status === RequestStatus.APPROVED ? 'bg-green-100 text-green-700 border border-green-200' : 'bg-yellow-100 text-yellow-700 border border-yellow-200'}`}>
+                                                    <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${req.status === RequestStatus.APPROVED ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
                                                         {req.status}
                                                     </span>
                                                 </td>
