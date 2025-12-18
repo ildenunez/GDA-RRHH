@@ -4,7 +4,7 @@ import { User, RequestStatus, Role, LeaveRequest } from '../types';
 import { store } from '../services/store';
 import ShiftScheduler from './ShiftScheduler';
 import RequestFormModal from './RequestFormModal';
-import { Check, X, Users, Edit2, Shield, Trash2, AlertTriangle, Briefcase, FileText, Activity, Clock, CalendarDays, ExternalLink, UserPlus, MessageSquare, PieChart, Calendar, Filter, Paintbrush, Plus, CalendarClock, Search, CheckCircle, FileWarning, Printer, CheckSquare, Square } from 'lucide-react';
+import { Check, X, Users, Edit2, Shield, Trash2, AlertTriangle, Briefcase, FileText, Activity, Clock, CalendarDays, ExternalLink, UserPlus, MessageSquare, PieChart, Calendar, Filter, Paintbrush, Plus, CalendarClock, Search, CheckCircle, FileWarning, Printer, CheckSquare, Square, Lock as LockIcon } from 'lucide-react';
 
 export const JustificationControl: React.FC<{ user: User, onViewRequest: (req: LeaveRequest) => void }> = ({ user, onViewRequest }) => {
     const [filterDeptId, setFilterDeptId] = useState<string>('');
@@ -560,7 +560,7 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
                             <td className="px-6 py-4 text-center font-mono font-bold text-blue-600">{u.overtimeHours}h</td>
                             <td className="px-6 py-4 text-right">
                                 <div className="flex justify-end gap-2">
-                                    <button onClick={() => { setAdjustmentDays(0); setAdjustmentHours(0); setEditingUser({...u}); }} className="text-blue-600 hover:bg-blue-50 p-2 rounded-lg transition-all" title="Ver ficha completa"><Edit2 size={16}/></button>
+                                    <button onClick={() => { setAdjustmentDays(0); setAdjustmentHours(0); setEditingUser({...u}); }} className="text-blue-600 hover:bg-blue-50 p-2 rounded-lg transition-all"><Edit2 size={16}/></button>
                                     <button onClick={() => { if(confirm('¿Seguro que quieres eliminar este usuario?')) { store.deleteUser(u.id); setUsers(store.getAllUsers()); } }} className="text-red-500 hover:bg-red-50 p-2 rounded-lg transition-all"><Trash2 size={16}/></button>
                                 </div>
                             </td>
@@ -612,20 +612,17 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
             </div>
             
             <form onSubmit={handleUpdateUser} className="p-6 space-y-6 overflow-y-auto flex-1">
-              {/* Sección Datos Básicos */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div><label className="block text-sm font-semibold text-slate-700 mb-2">Nombre Completo</label><input type="text" required className="w-full p-2.5 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition-all" value={editingUser.name} onChange={e => setEditingUser({...editingUser, name: e.target.value})} /></div>
                   <div><label className="block text-sm font-semibold text-slate-700 mb-2">Email Corporativo</label><input type="email" required className="w-full p-2.5 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition-all" value={editingUser.email} onChange={e => setEditingUser({...editingUser, email: e.target.value})} /></div>
                   <div><label className="block text-sm font-semibold text-slate-700 mb-2">Departamento</label><select className="w-full p-2.5 border border-slate-200 rounded-lg" value={editingUser.departmentId} onChange={e => setEditingUser({...editingUser, departmentId: e.target.value})}>{store.departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}</select></div>
                   <div><label className="block text-sm font-semibold text-slate-700 mb-2">Rol del Sistema</label><select className="w-full p-2.5 border border-slate-200 rounded-lg" value={editingUser.role} onChange={e => setEditingUser({...editingUser, role: e.target.value as Role})} disabled={currentUser.role !== Role.ADMIN}><option value={Role.WORKER}>Trabajador</option><option value={Role.SUPERVISOR}>Supervisor</option><option value={Role.ADMIN}>Admin</option></select></div>
-                  {isCreating && <div className="md:col-span-2 bg-blue-50 p-4 rounded-xl border border-blue-100"><label className="block text-sm font-bold text-blue-700 mb-2 flex items-center gap-2"><Lock size={16}/> Contraseña de Acceso</label><input type="text" required className="w-full p-2.5 border border-blue-200 rounded-lg bg-white" placeholder="Contraseña inicial..." value={newPassword} onChange={e => setNewPassword(e.target.value)} /></div>}
+                  {isCreating && <div className="md:col-span-2 bg-blue-50 p-4 rounded-xl border border-blue-100"><label className="block text-sm font-bold text-blue-700 mb-2 flex items-center gap-2"><LockIcon size={16}/> Contraseña de Acceso</label><input type="text" required className="w-full p-2.5 border border-blue-200 rounded-lg bg-white" placeholder="Contraseña inicial..." value={newPassword} onChange={e => setNewPassword(e.target.value)} /></div>}
               </div>
 
-              {/* Sección Gestión de Saldos WOW */}
               <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100 space-y-4">
                   <h4 className="font-bold text-slate-800 flex items-center gap-2"><FileText size={18} className="text-orange-500"/> {isCreating ? 'Saldos Iniciales' : 'Ajustes de Saldo'}</h4>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      {/* Días */}
                       <div className="bg-orange-50/50 p-4 rounded-xl border border-orange-100 space-y-3">
                           <div className="flex justify-between items-center">
                               <span className="text-xs font-bold text-orange-800 uppercase tracking-wider">Saldo Días Actual</span>
@@ -637,7 +634,6 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
                                       <input type="number" step="0.5" placeholder="0.0" className="w-20 p-2 text-center rounded-lg border border-orange-200 font-bold" value={adjustmentDays} onChange={e => setAdjustmentDays(parseFloat(e.target.value) || 0)} />
                                       <input type="text" placeholder="Motivo del ajuste..." className="flex-1 p-2 rounded-lg border border-orange-200 text-sm" value={adjustmentReasonDays} onChange={e => setAdjustmentReasonDays(e.target.value)} />
                                   </div>
-                                  <p className="text-[10px] text-orange-700 italic font-medium">Usa valores negativos para restar días (ej: -2).</p>
                               </div>
                           ) : (
                               <div className="space-y-1">
@@ -646,7 +642,6 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
                               </div>
                           )}
                       </div>
-                      {/* Horas */}
                       <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100 space-y-3">
                           <div className="flex justify-between items-center">
                               <span className="text-xs font-bold text-blue-800 uppercase tracking-wider">Saldo Horas Actual</span>
@@ -658,7 +653,6 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
                                       <input type="number" step="0.5" placeholder="0.0" className="w-20 p-2 text-center rounded-lg border border-blue-200 font-bold" value={adjustmentHours} onChange={e => setAdjustmentHours(parseFloat(e.target.value) || 0)} />
                                       <input type="text" placeholder="Motivo del ajuste..." className="flex-1 p-2 rounded-lg border border-blue-200 text-sm" value={adjustmentReasonHours} onChange={e => setAdjustmentReasonHours(e.target.value)} />
                                   </div>
-                                  <p className="text-[10px] text-blue-700 italic font-medium">Usa valores negativos para restar horas.</p>
                               </div>
                           ) : (
                               <div className="space-y-1">
@@ -670,7 +664,6 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
                   </div>
               </div>
 
-              {/* Sección Historial Interno WOW */}
               {!isCreating && (
                 <div className="space-y-4">
                     <div className="flex justify-between items-center px-1">
@@ -710,8 +703,8 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
                                                 </td>
                                                 <td className="px-4 py-3 text-right" onClick={e => e.stopPropagation()}>
                                                     <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                        <button onClick={() => { setRequestToEdit(req); setShowAdminRequestModal(true); }} className="p-1.5 text-blue-500 hover:bg-blue-100 rounded-lg" title="Editar"><Edit2 size={12}/></button>
-                                                        <button onClick={() => { if(confirm('¿Borrar solicitud? Esto revertirá los saldos si estaba aprobada.')) { store.deleteRequest(req.id); setRefreshTick(t=>t+1); } }} className="p-1.5 text-red-500 hover:bg-red-100 rounded-lg" title="Eliminar"><Trash2 size={12}/></button>
+                                                        <button onClick={() => { setRequestToEdit(req); setShowAdminRequestModal(true); }} className="p-1.5 text-blue-500 hover:bg-blue-100 rounded-lg"><Edit2 size={12}/></button>
+                                                        <button onClick={() => { if(confirm('¿Borrar solicitud? Esto revertirá los saldos si estaba aprobada.')) { store.deleteRequest(req.id); setRefreshTick(t=>t+1); } }} className="p-1.5 text-red-500 hover:bg-red-100 rounded-lg"><Trash2 size={12}/></button>
                                                     </div>
                                                 </td>
                                             </tr>
@@ -739,7 +732,6 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
         </div>
       )}
 
-      {/* Modal para crear/editar solicitudes administrativas */}
       {showAdminRequestModal && editingUser && (
         <RequestFormModal 
             onClose={() => { setShowAdminRequestModal(false); setRequestToEdit(null); setRefreshTick(t=>t+1); }} 

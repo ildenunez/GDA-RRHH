@@ -28,20 +28,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNewRequest, onEditRequest
       }
   };
 
-  const getDurationString = (req: LeaveRequest): string => {
-      if (req.typeId === 'adjustment_days') return `${(req.hours || 0) > 0 ? '+' : ''}${req.hours || 0} días`;
-      if (req.typeId === 'overtime_adjustment') return `${(req.hours || 0) > 0 ? '+' : ''}${req.hours || 0}h (Reg.)`;
-      
-      if (req.hours && req.hours > 0) return `${req.hours}h`;
-      const start = new Date(req.startDate);
-      const end = req.endDate ? new Date(req.endDate) : start;
-      start.setHours(0,0,0,0);
-      end.setHours(0,0,0,0);
-      const diff = Math.abs(end.getTime() - start.getTime());
-      const days = Math.ceil(diff / (1000 * 3600 * 24)) + 1; 
-      return `${days} día${days !== 1 ? 's' : ''}`;
-  };
-
   const stats = [
     { 
       id: 'days',
@@ -170,7 +156,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNewRequest, onEditRequest
                                         <td className="px-6 py-4">
                                             <div className="flex items-center gap-2">
                                                 <div className="font-medium text-slate-800">{String(req.label)}</div>
-                                                {req.createdByAdmin && <ShieldCheck size={14} className="text-purple-500" title="Admin" />}
+                                                {req.createdByAdmin && <ShieldCheck size={14} className="text-purple-500" />}
                                             </div>
                                             {req.reason && <div className="text-xs text-slate-500 italic mt-1">{String(req.reason)}</div>}
                                         </td>
@@ -266,7 +252,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNewRequest, onEditRequest
                 <div>
                   <div className="flex items-center gap-2">
                     <p className="font-semibold text-slate-700 text-sm">{String(req.label)}</p>
-                    {req.createdByAdmin && <ShieldCheck size={12} className="text-purple-500" title="Admin"/>}
+                    {req.createdByAdmin && <ShieldCheck size={12} className="text-purple-500" />}
                   </div>
                   <p className="text-xs text-slate-500">{req.typeId.includes('adjustment') ? 'Ajuste Manual' : `${new Date(req.startDate).toLocaleDateString()}`}</p>
                 </div>
