@@ -372,13 +372,13 @@ export const UserManagement: React.FC<{ currentUser: User, onViewRequest: (req: 
   const [requestToEdit, setRequestToEdit] = useState<LeaveRequest | null>(null);
 
   const displayUsers = useMemo(() => {
-      let result = users;
+      let result = [...users];
       if (currentUser.role !== Role.ADMIN) {
           const myDepts = store.departments.filter(d => d.supervisorIds.includes(currentUser.id)).map(d => d.id);
           result = result.filter(u => myDepts.includes(u.departmentId));
       }
       if (filterDeptId) result = result.filter(u => u.departmentId === filterDeptId);
-      return result;
+      return result.sort((a, b) => a.name.localeCompare(b.name));
   }, [users, currentUser, filterDeptId]);
 
   const teamStats = useMemo(() => {
