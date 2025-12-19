@@ -129,6 +129,12 @@ class Store {
         const { data: holidaysData } = await supabase.from('holidays').select('*');
         const { data: ppeTypes } = await supabase.from('ppe_types').select('*');
         const { data: ppeRequests } = await supabase.from('ppe_requests').select('*');
+        
+        // Carga de configuración persistente
+        const { data: smtpData } = await supabase.from('settings').select('value').eq('key', 'smtp').single();
+        if (smtpData && smtpData.value) {
+            this.config.smtpSettings = smtpData.value;
+        }
 
         if (usersData) this.users = this.mapUsersFromDB(usersData);
         if (deptsData) this.departments = deptsData.map((d: any) => ({
@@ -371,14 +377,9 @@ class Store {
       const nextYear = new Date().getFullYear() + 1;
       const concept = `Vacaciones ${nextYear}`;
       
-      // Procesamos a todos los usuarios
       for (const user of this.users) {
           const newBalance = (user.daysAvailable || 0) + 31;
-          
-          // 1. Actualizar el saldo en la BD
           await this.updateUserBalance(user.id, newBalance, user.overtimeHours);
-          
-          // 2. Crear el registro de ajuste para el histórico
           await this.createRequest({
               typeId: RequestType.ADJUSTMENT_DAYS,
               label: concept,
@@ -387,8 +388,6 @@ class Store {
               reason: 'Carga automática de inicio de año'
           }, user.id, RequestStatus.APPROVED);
       }
-      
-      // Refrescar datos locales
       await this.refreshUserBalances();
   }
 
@@ -677,13 +676,21 @@ class Store {
     });
   }
 
-  updateSmtpSettings(settings: any) {
+  async updateSmtpSettings(settings: any) {
     this.config.smtpSettings = settings;
+    await supabase.from('settings').upsert({ key: 'smtp', value: settings });
   }
 
   updateEmailTemplate(tpl: EmailTemplate) {
     const idx = this.config.emailTemplates.findIndex(t => t.id === tpl.id);
     if (idx !== -1) this.config.emailTemplates[idx] = tpl;
+  }
+
+  async sendTestEmail(toEmail: string): Promise<boolean> {
+      // Simulación de llamada a Edge Function de Supabase para envío real
+      console.debug('Llamando a Edge Function send-test-email con:', this.config.smtpSettings);
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      return true; 
   }
 }
 

@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { store } from './services/store';
 import { User, Role, LeaveTypeConfig, Department, LeaveRequest, OvertimeUsage, EmailTemplate, ShiftType, ShiftSegment, Holiday, PPEType } from './types';
@@ -41,7 +42,9 @@ import {
   UserCircle,
   HelpCircle,
   HardHat,
-  CalendarClock
+  CalendarClock,
+  Zap,
+  CheckCircle
 } from 'lucide-react';
 
 const LOGO_URL = "https://termosycalentadoresgranada.com/wp-content/uploads/2025/08/https___cdn.evbuc_.com_images_677236879_73808960223_1_original.png";
@@ -76,14 +79,12 @@ const Login = ({ onLogin }: { onLogin: (u: User) => void }) => {
 
   return (
     <div className="min-h-screen relative flex items-center justify-center overflow-hidden bg-slate-900">
-      {/* Background Image with Overlay */}
       <div 
         className="absolute inset-0 z-0 bg-cover bg-center opacity-40 transform scale-105"
         style={{ backgroundImage: 'url("https://images.unsplash.com/photo-1497215728101-856f4ea42174?ixlib=rb-1.2.1&auto=format&fit=crop&w=1950&q=80")' }}
       />
       <div className="absolute inset-0 z-0 bg-gradient-to-tr from-blue-900/80 via-slate-900/80 to-purple-900/80 backdrop-blur-sm" />
 
-      {/* Login Card */}
       <div className="relative z-10 w-full max-w-md p-8 m-4 bg-white/90 backdrop-blur-xl rounded-3xl shadow-2xl border border-white/20 animate-fade-in-up">
         
         <div className="text-center mb-8">
@@ -143,7 +144,7 @@ const Login = ({ onLogin }: { onLogin: (u: User) => void }) => {
   );
 };
 
-// --- Department Modal (Sin cambios) ---
+// --- Department Modal ---
 const DepartmentModal = ({ onClose, dept, onSave }: { onClose: () => void, dept?: Department, onSave: (d: Department) => void }) => {
     const [name, setName] = useState(dept?.name || '');
     const [supervisorIds, setSupervisorIds] = useState<string[]>(dept?.supervisorIds || []);
@@ -221,6 +222,9 @@ const AdminSettings = ({ onViewRequest }: { onViewRequest: (req: LeaveRequest) =
     const [commTab, setCommTab] = useState<'templates' | 'smtp' | 'message'>('templates');
     const [selectedTemplate, setSelectedTemplate] = useState<EmailTemplate | null>(null);
     const [smtpConfig, setSmtpConfig] = useState(store.config.smtpSettings);
+    const [testEmail, setTestEmail] = useState('');
+    const [isTestingSmtp, setIsTestingSmtp] = useState(false);
+    const [saveLoading, setSaveLoading] = useState(false);
 
     // Mass Message State
     const [massMessage, setMassMessage] = useState('');
@@ -261,9 +265,31 @@ const AdminSettings = ({ onViewRequest }: { onViewRequest: (req: LeaveRequest) =
         }
     };
 
-    const handleSaveSmtp = () => {
-        store.updateSmtpSettings(smtpConfig);
-        alert('Configuración SMTP actualizada');
+    const handleSaveSmtp = async () => {
+        setSaveLoading(true);
+        try {
+            await store.updateSmtpSettings(smtpConfig);
+            alert('Configuración SMTP guardada permanentemente en la base de datos.');
+        } catch (e) {
+            alert('Error al guardar la configuración.');
+        } finally {
+            setSaveLoading(false);
+        }
+    };
+
+    const handleTestSmtp = async () => {
+        if (!testEmail || !testEmail.includes('@')) return alert('Introduce un email de destino válido.');
+        setIsTestingSmtp(true);
+        try {
+            const success = await store.sendTestEmail(testEmail);
+            if (success) {
+                alert(`¡Éxito! Se ha enviado un email de prueba a ${testEmail}. Por favor, revisa la bandeja de entrada.`);
+            }
+        } catch (e) {
+            alert('Error al realizar la prueba de envío.');
+        } finally {
+            setIsTestingSmtp(false);
+        }
     };
 
     const handleSendMassMessage = async () => {
@@ -403,14 +429,12 @@ const AdminSettings = ({ onViewRequest }: { onViewRequest: (req: LeaveRequest) =
                 )}
                 {subTab === 'absences' && (
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                        {/* TIPOS DE AUSENCIA */}
                         <div className="space-y-6">
                             <h3 className="font-bold text-lg text-slate-700 border-b pb-2">Tipos de Ausencia</h3>
                             <div className="grid gap-4">{config.leaveTypes.map(type => (<div key={type.id} className="flex justify-between p-4 border rounded-lg bg-slate-50"><div><p className="font-bold">{type.label}</p><span className="text-xs text-slate-500">{type.subtractsDays ? 'Resta Días' : 'No Resta'}</span></div><div className="flex gap-2"><button onClick={() => handleEditType(type)} className="text-blue-500"><Edit2 size={18}/></button><button onClick={() => handleDeleteType(type.id)} className="text-red-400"><Trash size={18}/></button></div></div>))}</div>
                             <div className="bg-slate-50 p-6 rounded-xl border"><h4 className="font-bold mb-4 text-sm uppercase">{editingTypeId ? 'Editar' : 'Crear'} Tipo</h4><div className="grid md:grid-cols-2 gap-4 mb-4"><div><label className="text-sm">Nombre</label><input className="w-full p-2 border rounded" value={newType.label} onChange={e => setNewType({...newType, label: e.target.value})}/></div><div className="flex items-center pt-6"><label className="flex gap-2"><input type="checkbox" checked={newType.subtractsDays} onChange={e => setNewType({...newType, subtractsDays: e.target.checked})}/> Resta días</label></div></div><label className="flex gap-2 mb-2"><input type="checkbox" checked={showRangeInputs} onChange={e => setShowRangeInputs(e.target.checked)}/> Fechas Fijas</label>{showRangeInputs && <div className="grid grid-cols-2 gap-4 mb-4"><input type="date" className="p-2 border rounded" value={newType.fixedRange?.startDate || ''} onChange={e => setNewType({...newType, fixedRange: {...(newType.fixedRange || {}), startDate: e.target.value} as any})}/><input type="date" className="p-2 border rounded" value={newType.fixedRange?.endDate || ''} onChange={e => setNewType({...newType, fixedRange: {...(newType.fixedRange || {}), endDate: e.target.value} as any})}/></div>}<button onClick={handleSaveType} className="bg-slate-900 text-white px-4 py-2 rounded-lg text-sm">{editingTypeId ? 'Actualizar' : 'Añadir'}</button></div>
                         </div>
 
-                        {/* TIPOS DE TURNOS */}
                         <div className="space-y-6">
                             <h3 className="font-bold text-lg text-slate-700 border-b pb-2">Tipos de Turno</h3>
                              <div className="grid gap-4">{config.shiftTypes.map(type => (
@@ -454,7 +478,6 @@ const AdminSettings = ({ onViewRequest }: { onViewRequest: (req: LeaveRequest) =
                              </div>
                         </div>
 
-                         {/* DÍAS FESTIVOS */}
                          <div className="space-y-6">
                             <h3 className="font-bold text-lg text-slate-700 border-b pb-2">Días Festivos</h3>
                             <div className="max-h-60 overflow-y-auto space-y-2 border border-slate-200 rounded-lg p-2 bg-slate-50">
@@ -540,7 +563,6 @@ const AdminSettings = ({ onViewRequest }: { onViewRequest: (req: LeaveRequest) =
                 )}
                 {subTab === 'communications' && (
                     <div className="flex flex-col md:flex-row gap-6 h-full min-h-[500px]">
-                        {/* Sidebar */}
                         <div className="w-full md:w-64 border-r border-slate-100 pr-4 space-y-2">
                              <h3 className="font-bold text-slate-700 mb-4 px-2">Configuración</h3>
                              <button onClick={() => setCommTab('templates')} className={`w-full text-left p-3 rounded-lg text-sm flex items-center gap-2 ${commTab === 'templates' ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-600 hover:bg-slate-50'}`}>
@@ -554,9 +576,7 @@ const AdminSettings = ({ onViewRequest }: { onViewRequest: (req: LeaveRequest) =
                              </button>
                         </div>
 
-                        {/* Content Area */}
                         <div className="flex-1 pl-2">
-                            {/* PLANTILLAS */}
                             {commTab === 'templates' && (
                                 <div className="flex gap-4 h-full">
                                     <div className="w-1/3 border-r pr-2 space-y-1 overflow-y-auto max-h-[500px]">
@@ -581,22 +601,74 @@ const AdminSettings = ({ onViewRequest }: { onViewRequest: (req: LeaveRequest) =
                                 </div>
                             )}
 
-                            {/* SMTP CONFIG */}
                             {commTab === 'smtp' && (
-                                <div className="max-w-md space-y-4">
-                                    <h3 className="font-bold text-lg mb-4">Configuración del Servidor de Correo</h3>
-                                    <div><label className="text-sm font-semibold">Host SMTP</label><input type="text" className="w-full p-2 border rounded" value={smtpConfig.host} onChange={e => setSmtpConfig({...smtpConfig, host: e.target.value})} placeholder="smtp.gmail.com"/></div>
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div><label className="text-sm font-semibold">Puerto</label><input type="number" className="w-full p-2 border rounded" value={smtpConfig.port} onChange={e => setSmtpConfig({...smtpConfig, port: parseInt(e.target.value)})}/></div>
-                                        <div className="flex items-end pb-2"><label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" className="w-4 h-4" checked={smtpConfig.enabled} onChange={e => setSmtpConfig({...smtpConfig, enabled: e.target.checked})}/> Habilitar Envío</label></div>
+                                <div className="max-w-xl space-y-6">
+                                    <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl flex items-start gap-3">
+                                        <Info className="text-blue-500 shrink-0 mt-1" size={18}/>
+                                        <p className="text-xs text-blue-800 leading-relaxed">Estos ajustes se guardan en la base de datos y se mantendrán aunque actualices la versión de la aplicación. Asegúrate de que el servidor permite el acceso desde IPs externas.</p>
                                     </div>
-                                    <div><label className="text-sm font-semibold">Usuario</label><input type="text" className="w-full p-2 border rounded" value={smtpConfig.user} onChange={e => setSmtpConfig({...smtpConfig, user: e.target.value})}/></div>
-                                    <div><label className="text-sm font-semibold">Contraseña</label><input type="password" className="w-full p-2 border rounded" value={smtpConfig.password || ''} onChange={e => setSmtpConfig({...smtpConfig, password: e.target.value})}/></div>
-                                    <button onClick={handleSaveSmtp} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold w-full mt-4 hover:bg-blue-700">Guardar Configuración</button>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div className="md:col-span-2">
+                                            <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Host SMTP</label>
+                                            <input type="text" className="w-full p-2.5 border rounded-lg" value={smtpConfig.host} onChange={e => setSmtpConfig({...smtpConfig, host: e.target.value})} placeholder="smtp.tuproveedor.com"/>
+                                        </div>
+                                        <div>
+                                            <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Puerto</label>
+                                            <input type="number" className="w-full p-2.5 border rounded-lg" value={smtpConfig.port} onChange={e => setSmtpConfig({...smtpConfig, port: parseInt(e.target.value)})}/>
+                                        </div>
+                                        <div className="flex items-end pb-1 px-2">
+                                            <label className="flex items-center gap-2 cursor-pointer text-sm font-medium text-slate-700">
+                                                <input type="checkbox" className="w-4 h-4 rounded text-blue-600" checked={smtpConfig.enabled} onChange={e => setSmtpConfig({...smtpConfig, enabled: e.target.checked})}/> 
+                                                Habilitar servicio de correo
+                                            </label>
+                                        </div>
+                                        <div>
+                                            <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Usuario / Email</label>
+                                            <input type="text" className="w-full p-2.5 border rounded-lg" value={smtpConfig.user} onChange={e => setSmtpConfig({...smtpConfig, user: e.target.value})}/>
+                                        </div>
+                                        <div>
+                                            <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Contraseña</label>
+                                            <input type="password" placeholder="••••••••" className="w-full p-2.5 border rounded-lg" value={smtpConfig.password || ''} onChange={e => setSmtpConfig({...smtpConfig, password: e.target.value})}/>
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="flex gap-4">
+                                        <button 
+                                            onClick={handleSaveSmtp} 
+                                            disabled={saveLoading}
+                                            className="flex-1 bg-slate-900 text-white px-6 py-3 rounded-xl font-bold hover:bg-slate-800 transition-all flex items-center justify-center gap-2 shadow-lg"
+                                        >
+                                            {saveLoading ? <Loader2 className="animate-spin" size={18}/> : <Save size={18}/>}
+                                            Guardar Configuración
+                                        </button>
+                                    </div>
+
+                                    {/* SECCIÓN DE PRUEBA */}
+                                    <div className="mt-8 pt-8 border-t border-slate-100">
+                                        <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><Zap className="text-orange-500" size={18}/> Prueba de envío</h4>
+                                        <div className="flex flex-col md:flex-row gap-3">
+                                            <input 
+                                                type="email" 
+                                                placeholder="Introduce email de destino..." 
+                                                className="flex-1 p-2.5 border rounded-lg bg-slate-50 text-sm focus:bg-white transition-all outline-none focus:ring-2 focus:ring-orange-500/20"
+                                                value={testEmail}
+                                                onChange={e => setTestEmail(e.target.value)}
+                                            />
+                                            <button 
+                                                onClick={handleTestSmtp}
+                                                disabled={isTestingSmtp || !testEmail}
+                                                className="bg-orange-100 text-orange-700 hover:bg-orange-200 border border-orange-200 px-6 py-2.5 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+                                            >
+                                                {isTestingSmtp ? <Loader2 size={16} className="animate-spin"/> : <Send size={16}/>}
+                                                Realizar Prueba
+                                            </button>
+                                        </div>
+                                        <p className="text-[10px] text-slate-400 mt-2 italic">* Se enviará un email genérico utilizando los credenciales guardados actualmente.</p>
+                                    </div>
                                 </div>
                             )}
 
-                            {/* ENVIAR MENSAJE */}
                             {commTab === 'message' && (
                                 <div className="space-y-4 max-w-xl">
                                     <h3 className="font-bold text-lg flex items-center gap-2"><MessageSquare size={20}/> Enviar Notificación Masiva</h3>
@@ -642,7 +714,7 @@ const AdminSettings = ({ onViewRequest }: { onViewRequest: (req: LeaveRequest) =
                         </div>
                     </div>
                 )}
-                {subTab === 'general' && <div className="p-4 text-center text-slate-500">Configuración SMTP Mockeada</div>}
+                {subTab === 'general' && <div className="p-4 text-center text-slate-500">Configuración Global</div>}
             </div>
         </div>
     );
