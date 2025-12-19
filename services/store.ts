@@ -686,11 +686,43 @@ class Store {
     if (idx !== -1) this.config.emailTemplates[idx] = tpl;
   }
 
-  async sendTestEmail(toEmail: string): Promise<boolean> {
-      // Simulación de llamada a Edge Function de Supabase para envío real
-      console.debug('Llamando a Edge Function send-test-email con:', this.config.smtpSettings);
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      return true; 
+  async sendTestEmail(toEmail: string): Promise<{success: boolean, log: string[]}> {
+      const logs: string[] = ["⚙️ Iniciando diagnóstico...", "Cargando configuración persistente..."];
+      
+      try {
+          logs.push(`🚀 Llamando a pasarela de Supabase...`);
+          
+          const { data, error } = await supabase.functions.invoke('send-test-email', {
+              body: { 
+                  to: toEmail, 
+                  config: this.config.smtpSettings 
+              }
+          });
+
+          if (error) {
+              logs.push(`❌ ERROR DE FUNCIÓN: ${error.message || 'Error desconocido'}`);
+              if (error.message?.includes('404')) {
+                  logs.push("CONSEJO: La función 'send-test-email' no parece estar desplegada en Supabase.");
+              }
+              return { success: false, log: logs };
+          }
+
+          // Si llegamos aquí, la función respondió
+          if (data && data.success) {
+              logs.push("✅ CONEXIÓN SMTP EXITOSA.");
+              logs.push(`📧 Email enviado correctamente a ${toEmail}.`);
+              return { success: true, log: logs };
+          } else {
+              logs.push(`❌ EL SERVIDOR SMTP RECHAZÓ EL ENVÍO: ${data?.error || 'Error desconocido del servidor de correo'}`);
+              logs.push(`DETALLE TÉCNICO: ${data?.details || 'No hay detalles adicionales'}`);
+              return { success: false, log: logs };
+          }
+
+      } catch (e: any) {
+          logs.push(`🔥 FALLO CRÍTICO DE RED: ${e.message}`);
+          logs.push("CONSEJO: Verifica que la URL de Supabase y la ANON KEY sean correctas.");
+          return { success: false, log: logs };
+      }
   }
 }
 

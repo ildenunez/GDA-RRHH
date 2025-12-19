@@ -44,7 +44,11 @@ import {
   HardHat,
   CalendarClock,
   Zap,
-  CheckCircle
+  CheckCircle,
+  Terminal,
+  Code,
+  Copy,
+  Check as CheckIcon
 } from 'lucide-react';
 
 const LOGO_URL = "https://termosycalentadoresgranada.com/wp-content/uploads/2025/08/https___cdn.evbuc_.com_images_677236879_73808960223_1_original.png";
@@ -223,8 +227,11 @@ const AdminSettings = ({ onViewRequest }: { onViewRequest: (req: LeaveRequest) =
     const [selectedTemplate, setSelectedTemplate] = useState<EmailTemplate | null>(null);
     const [smtpConfig, setSmtpConfig] = useState(store.config.smtpSettings);
     const [testEmail, setTestEmail] = useState('');
+    const [testLogs, setTestLogs] = useState<string[]>([]);
     const [isTestingSmtp, setIsTestingSmtp] = useState(false);
     const [saveLoading, setSaveLoading] = useState(false);
+    const [showBridgeCode, setShowBridgeCode] = useState(false);
+    const [copied, setCopied] = useState(false);
 
     // Mass Message State
     const [massMessage, setMassMessage] = useState('');
@@ -280,16 +287,75 @@ const AdminSettings = ({ onViewRequest }: { onViewRequest: (req: LeaveRequest) =
     const handleTestSmtp = async () => {
         if (!testEmail || !testEmail.includes('@')) return alert('Introduce un email de destino válido.');
         setIsTestingSmtp(true);
-        try {
-            const success = await store.sendTestEmail(testEmail);
-            if (success) {
-                alert(`¡Éxito! Se ha enviado un email de prueba a ${testEmail}. Por favor, revisa la bandeja de entrada.`);
-            }
-        } catch (e) {
-            alert('Error al realizar la prueba de envío.');
-        } finally {
-            setIsTestingSmtp(false);
+        setTestLogs([]);
+        
+        const result = await store.sendTestEmail(testEmail);
+        setTestLogs(result.log);
+        setIsTestingSmtp(false);
+
+        if (result.success) {
+            alert('¡Prueba completada! Verifica la bandeja de entrada de ' + testEmail);
+        } else {
+            alert('La prueba falló. Revisa la consola de diagnóstico más abajo.');
         }
+    };
+
+    const BRIDGE_CODE = `import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
+import nodemailer from "npm:nodemailer"
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+}
+
+serve(async (req) => {
+  // Manejar Preflight (CORS) obligatorio
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders })
+  }
+
+  try {
+    const { to, config } = await req.json()
+    
+    // Configurar transporte con Nodemailer (más robusto)
+    const transporter = nodemailer.createTransport({
+      host: config.host,
+      port: config.port,
+      secure: config.port === 465, // true para 465, false para otros (como 587 con STARTTLS)
+      auth: {
+        user: config.user,
+        pass: config.password,
+      },
+    })
+
+    // Enviar el correo
+    await transporter.sendMail({
+      from: config.user,
+      to: to,
+      subject: "Diagnóstico SMTP - GdA RRHH",
+      text: "Si recibes este correo, tu configuración SMTP en GdA RRHH funciona correctamente utilizando Nodemailer.",
+    })
+
+    return new Response(JSON.stringify({ success: true }), { 
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+    })
+  } catch (error) {
+    console.error("Error en Edge Function:", error)
+    return new Response(JSON.stringify({ 
+      success: false, 
+      error: error.message,
+      details: error.toString() 
+    }), { 
+      status: 200, 
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+    })
+  }
+})`;
+
+    const copyToClipboard = () => {
+        navigator.clipboard.writeText(BRIDGE_CODE);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
     };
 
     const handleSendMassMessage = async () => {
@@ -605,8 +671,29 @@ const AdminSettings = ({ onViewRequest }: { onViewRequest: (req: LeaveRequest) =
                                 <div className="max-w-xl space-y-6">
                                     <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl flex items-start gap-3">
                                         <Info className="text-blue-500 shrink-0 mt-1" size={18}/>
-                                        <p className="text-xs text-blue-800 leading-relaxed">Estos ajustes se guardan en la base de datos y se mantendrán aunque actualices la versión de la aplicación. Asegúrate de que el servidor permite el acceso desde IPs externas.</p>
+                                        <div className="space-y-1">
+                                            <p className="text-xs text-blue-800 font-bold">SOLUCIÓN DEFINITIVA (NODEMAILER)</p>
+                                            <p className="text-xs text-blue-800 leading-relaxed">Las versiones nuevas de Deno/Supabase requieren librerías modernas. Actualiza tu función en Supabase con este código que utiliza <strong>Nodemailer</strong>:</p>
+                                            <button onClick={() => setShowBridgeCode(!showBridgeCode)} className="text-xs text-blue-600 font-bold underline flex items-center gap-1 mt-2">
+                                                <Code size={12}/> {showBridgeCode ? 'Ocultar código' : 'Ver código de la Pasarela (Nodemailer)'}
+                                            </button>
+                                        </div>
                                     </div>
+
+                                    {showBridgeCode && (
+                                        <div className="space-y-2 animate-fade-in">
+                                            <div className="flex justify-between items-center bg-slate-800 text-white px-4 py-2 rounded-t-xl">
+                                                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">send-test-email / index.ts</span>
+                                                <button onClick={copyToClipboard} className="flex items-center gap-1 text-[10px] bg-slate-700 hover:bg-slate-600 px-2 py-1 rounded transition-colors">
+                                                    {copied ? <CheckIcon size={12} className="text-green-400"/> : <Copy size={12}/>}
+                                                    {copied ? 'Copiado' : 'Copiar'}
+                                                </button>
+                                            </div>
+                                            <div className="bg-slate-900 text-white p-4 rounded-b-xl text-[10px] font-mono overflow-x-auto border-2 border-t-0 border-blue-400 max-h-60 overflow-y-auto">
+                                                <pre>{BRIDGE_CODE}</pre>
+                                            </div>
+                                        </div>
+                                    )}
 
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                         <div className="md:col-span-2">
@@ -644,13 +731,13 @@ const AdminSettings = ({ onViewRequest }: { onViewRequest: (req: LeaveRequest) =
                                         </button>
                                     </div>
 
-                                    {/* SECCIÓN DE PRUEBA */}
-                                    <div className="mt-8 pt-8 border-t border-slate-100">
-                                        <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><Zap className="text-orange-500" size={18}/> Prueba de envío</h4>
+                                    {/* SECCIÓN DE PRUEBA AVANZADA */}
+                                    <div className="mt-8 pt-8 border-t border-slate-100 space-y-4">
+                                        <h4 className="font-bold text-slate-800 flex items-center gap-2"><Zap className="text-orange-500" size={18}/> Diagnóstico de pasarela</h4>
                                         <div className="flex flex-col md:flex-row gap-3">
                                             <input 
                                                 type="email" 
-                                                placeholder="Introduce email de destino..." 
+                                                placeholder="Email de destino para el test..." 
                                                 className="flex-1 p-2.5 border rounded-lg bg-slate-50 text-sm focus:bg-white transition-all outline-none focus:ring-2 focus:ring-orange-500/20"
                                                 value={testEmail}
                                                 onChange={e => setTestEmail(e.target.value)}
@@ -661,10 +748,28 @@ const AdminSettings = ({ onViewRequest }: { onViewRequest: (req: LeaveRequest) =
                                                 className="bg-orange-100 text-orange-700 hover:bg-orange-200 border border-orange-200 px-6 py-2.5 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-all disabled:opacity-50"
                                             >
                                                 {isTestingSmtp ? <Loader2 size={16} className="animate-spin"/> : <Send size={16}/>}
-                                                Realizar Prueba
+                                                Iniciar Diagnóstico
                                             </button>
                                         </div>
-                                        <p className="text-[10px] text-slate-400 mt-2 italic">* Se enviará un email genérico utilizando los credenciales guardados actualmente.</p>
+
+                                        {/* CONSOLA DE DIAGNÓSTICO */}
+                                        {(isTestingSmtp || testLogs.length > 0) && (
+                                            <div className="bg-slate-900 rounded-xl p-4 shadow-inner">
+                                                <div className="flex items-center justify-between text-slate-400 text-[10px] uppercase font-bold mb-2 border-b border-slate-800 pb-2">
+                                                    <div className="flex items-center gap-2"><Terminal size={12}/> Consola de Salida</div>
+                                                    <button onClick={() => setTestLogs([])} className="hover:text-white">Limpiar</button>
+                                                </div>
+                                                <div className="space-y-1 max-h-40 overflow-y-auto font-mono text-[10px] leading-tight">
+                                                    {testLogs.map((log, idx) => (
+                                                        <div key={idx} className={log.includes('❌') || log.includes('🔥') ? 'text-red-400' : log.includes('✅') ? 'text-green-400' : 'text-blue-300'}>
+                                                            <span className="text-slate-600 mr-2">[{new Date().toLocaleTimeString()}]</span>
+                                                            {log}
+                                                        </div>
+                                                    ))}
+                                                    {isTestingSmtp && <div className="text-blue-400 animate-pulse">Llamando a la API...</div>}
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                             )}
@@ -783,7 +888,6 @@ export default function App() {
           <NavItem id="dashboard" icon={LayoutDashboard} label="Dashboard" />
           <NavItem id="calendar" icon={CalendarDays} label="Calendario" />
           <NavItem id="notifications" icon={Bell} label="Notificaciones" badgeCount={unreadNotificationsCount} />
-          <NavItem id="profile" icon={UserCircle} label="Mi Perfil" />
           <NavItem id="epis" icon={HardHat} label="EPIS" />
           {(isSupervisor) && (
             <>
