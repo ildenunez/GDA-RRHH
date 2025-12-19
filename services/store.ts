@@ -130,7 +130,6 @@ class Store {
         const { data: ppeTypes } = await supabase.from('ppe_types').select('*');
         const { data: ppeRequests } = await supabase.from('ppe_requests').select('*');
         
-        // Carga de configuración persistente
         const { data: smtpData } = await supabase.from('settings').select('value').eq('key', 'smtp').single();
         if (smtpData && smtpData.value) {
             this.config.smtpSettings = smtpData.value;
@@ -332,6 +331,54 @@ class Store {
     return overtimeIds.includes(typeId as RequestType) || typeId.startsWith('overtime_');
   }
 
+  // Helper para calcular el impacto de una solicitud en los saldos
+  private calculateRequestImpact(typeId: string, startDate: string, endDate?: string, hours?: number) {
+      let deltaDays = 0;
+      let deltaHours = 0;
+
+      const leaveType = this.config.leaveTypes.find(t => t.id === typeId);
+
+      // Casos de AUSENCIA
+      if (leaveType && leaveType.subtractsDays) {
+          const start = new Date(startDate);
+          const end = new Date(endDate || startDate);
+          start.setHours(0,0,0,0);
+          end.setHours(0,0,0,0);
+          const diffTime = Math.abs(end.getTime() - start.getTime());
+          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+          deltaDays = -diffDays;
+      }
+
+      // Casos de HORAS EXTRA / AJUSTES
+      switch (typeId) {
+          case RequestType.OVERTIME_EARN:
+              deltaHours = +(hours || 0);
+              break;
+          case RequestType.OVERTIME_PAY:
+              deltaHours = -(hours || 0);
+              break;
+          case RequestType.OVERTIME_SPEND_DAYS:
+              deltaHours = -(hours || 0);
+              // Si es canje, solemos sumar días (ej: 8h = 1 día), pero aquí el usuario 
+              // suele crear la solicitud de ausencia aparte o el admin lo ajusta.
+              // Por ahora solo descontamos las horas.
+              break;
+          case RequestType.ADJUSTMENT_DAYS:
+              deltaDays = +(hours || 0); // En ajustes de días, usamos el campo hours para el valor
+              break;
+          case RequestType.ADJUSTMENT_OVERTIME:
+              deltaHours = +(hours || 0);
+              break;
+          case RequestType.WORKED_HOLIDAY:
+              // Por defecto, festivo trabajado suma 1 día o 4h, configurable.
+              // Implementamos +1 día por defecto
+              deltaDays = +1;
+              break;
+      }
+
+      return { deltaDays, deltaHours };
+  }
+
   async createRequest(data: any, userId: string, status: RequestStatus = RequestStatus.PENDING) {
     let finalLabel = data.label;
     if (!finalLabel) {
@@ -367,8 +414,20 @@ class Store {
 
     const { data: inserted, error } = await supabase.from('requests').insert(newReq).select().single();
     if (error) throw error;
+    
     if (inserted) {
-      this.requests.push(this.mapRequestsFromDB([inserted])[0]);
+      const mapped = this.mapRequestsFromDB([inserted])[0];
+      this.requests.push(mapped);
+
+      // DESCUENTO INMEDIATO: Si la solicitud no es rechazada de entrada, aplicamos impacto
+      if (status !== RequestStatus.REJECTED) {
+          const { deltaDays, deltaHours } = this.calculateRequestImpact(data.typeId, data.startDate, data.endDate, data.hours);
+          const user = this.users.find(u => u.id === userId);
+          if (user) {
+              await this.updateUserBalance(userId, user.daysAvailable + deltaDays, user.overtimeHours + deltaHours);
+          }
+      }
+      
       await this.refreshUserBalances();
     }
   }
@@ -392,6 +451,17 @@ class Store {
   }
 
   async updateRequest(id: string, data: any) {
+    // Para simplificar, si se edita, revertimos el impacto viejo y aplicamos el nuevo
+    const oldReq = this.requests.find(r => r.id === id);
+    if (oldReq && oldReq.status !== RequestStatus.REJECTED) {
+        const oldImpact = this.calculateRequestImpact(oldReq.typeId, oldReq.startDate, oldReq.endDate, oldReq.hours);
+        const user = this.users.find(u => u.id === oldReq.userId);
+        if (user) {
+            // Revertir
+            await this.updateUserBalance(user.id, user.daysAvailable - oldImpact.deltaDays, user.overtimeHours - oldImpact.deltaHours);
+        }
+    }
+
     const { error } = await supabase.from('requests').update({
       type_id: data.typeId,
       start_date: data.startDate,
@@ -401,24 +471,68 @@ class Store {
       overtime_usage: data.overtimeUsage
     }).eq('id', id);
     if (error) throw error;
+
+    // Aplicar nuevo impacto (si no es rechazado)
+    if (oldReq && oldReq.status !== RequestStatus.REJECTED) {
+        const newImpact = this.calculateRequestImpact(data.typeId, data.startDate, data.endDate, data.hours);
+        const user = this.users.find(u => u.id === oldReq.userId);
+        if (user) {
+            await this.updateUserBalance(user.id, user.daysAvailable + newImpact.deltaDays, user.overtimeHours + newImpact.deltaHours);
+        }
+    }
+
     const idx = this.requests.findIndex(r => r.id === id);
     if (idx !== -1) {
       this.requests[idx] = { ...this.requests[idx], ...data };
     }
+    await this.refreshUserBalances();
   }
 
   async updateRequestStatus(id: string, status: RequestStatus, adminId: string, adminComment?: string) {
+    const oldReq = this.requests.find(r => r.id === id);
+    if (!oldReq) return;
+
+    // Si pasa a RECHAZADO, devolvemos el saldo que se descontó al crearla (PENDIENTE)
+    if (oldReq.status !== RequestStatus.REJECTED && status === RequestStatus.REJECTED) {
+        const impact = this.calculateRequestImpact(oldReq.typeId, oldReq.startDate, oldReq.endDate, oldReq.hours);
+        const user = this.users.find(u => u.id === oldReq.userId);
+        if (user) {
+            // Devolver: restamos el delta negativo (que es sumar)
+            await this.updateUserBalance(user.id, user.daysAvailable - impact.deltaDays, user.overtimeHours - impact.deltaHours);
+        }
+    } 
+    // Si estaba RECHAZADA y pasa a aprobada/pendiente, volvemos a descontar
+    else if (oldReq.status === RequestStatus.REJECTED && status !== RequestStatus.REJECTED) {
+        const impact = this.calculateRequestImpact(oldReq.typeId, oldReq.startDate, oldReq.endDate, oldReq.hours);
+        const user = this.users.find(u => u.id === oldReq.userId);
+        if (user) {
+            await this.updateUserBalance(user.id, user.daysAvailable + impact.deltaDays, user.overtimeHours + impact.deltaHours);
+        }
+    }
+
     const { error } = await supabase.from('requests').update({ status, admin_comment: adminComment }).eq('id', id);
     if (error) throw error;
+    
     const idx = this.requests.findIndex(r => r.id === id);
     if (idx !== -1) {
       this.requests[idx].status = status;
       this.requests[idx].adminComment = adminComment;
-      await this.refreshUserBalances();
     }
+    await this.refreshUserBalances();
   }
 
   async deleteRequest(id: string) {
+    const req = this.requests.find(r => r.id === id);
+    
+    // Si la solicitud estaba aprobada o pendiente (descontada), devolvemos el saldo antes de borrar
+    if (req && req.status !== RequestStatus.REJECTED) {
+        const impact = this.calculateRequestImpact(req.typeId, req.startDate, req.endDate, req.hours);
+        const user = this.users.find(u => u.id === req.userId);
+        if (user) {
+            await this.updateUserBalance(user.id, user.daysAvailable - impact.deltaDays, user.overtimeHours - impact.deltaHours);
+        }
+    }
+
     const { error } = await supabase.from('requests').delete().eq('id', id);
     if (error) throw error;
     this.requests = this.requests.filter(r => r.id !== id);
@@ -427,10 +541,12 @@ class Store {
 
   async refreshUserBalances() {
     const { data: usersData } = await supabase.from('users').select('*');
-    if (usersData) this.users = this.mapUsersFromDB(usersData);
-    if (this.currentUser) {
-      const updated = this.users.find(u => u.id === this.currentUser!.id);
-      if (updated) this.currentUser = updated;
+    if (usersData) {
+        this.users = this.mapUsersFromDB(usersData);
+        if (this.currentUser) {
+            const updated = this.users.find(u => u.id === this.currentUser!.id);
+            if (updated) this.currentUser = updated;
+        }
     }
   }
 
@@ -609,7 +725,16 @@ class Store {
     if (idx !== -1) this.users[idx].role = role;
   }
   async updateUserBalance(id: string, daysAvailable: number, overtimeHours: number) {
-    await supabase.from('users').update({ days_available: daysAvailable, overtime_hours: overtimeHours }).eq('id', id);
+    const { error } = await supabase.from('users').update({ 
+        days_available: daysAvailable, 
+        overtime_hours: overtimeHours 
+    }).eq('id', id);
+    
+    if (error) {
+        console.error("Error al actualizar balance:", error);
+        return;
+    }
+
     const idx = this.users.findIndex(u => u.id === id);
     if (idx !== -1) {
       this.users[idx].daysAvailable = daysAvailable;
@@ -707,7 +832,6 @@ class Store {
               return { success: false, log: logs };
           }
 
-          // Si llegamos aquí, la función respondió
           if (data && data.success) {
               logs.push("✅ CONEXIÓN SMTP EXITOSA.");
               logs.push(`📧 Email enviado correctamente a ${toEmail}.`);
