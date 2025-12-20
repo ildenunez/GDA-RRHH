@@ -2,8 +2,8 @@
 import React, { useState, useEffect } from 'react';
 import { User, RequestStatus, LeaveRequest, RequestType } from '../types';
 import { store } from '../services/store';
-import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, Cell, Legend, YAxis, CartesianGrid } from 'recharts';
-import { Calendar, Clock, AlertCircle, CheckCircle, XCircle, Sun, PlusCircle, Timer, ChevronRight, ArrowLeft, History, Edit2, Trash2, Briefcase, ShieldCheck, HardHat } from 'lucide-react';
+import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, Legend, YAxis, CartesianGrid } from 'recharts';
+import { Calendar, Clock, AlertCircle, Sun, PlusCircle, Timer, ChevronRight, ArrowLeft, History, Edit2, Trash2, Briefcase, ShieldCheck, HardHat } from 'lucide-react';
 import PPERequestModal from './PPERequestModal';
 
 interface DashboardProps {
@@ -13,28 +13,23 @@ interface DashboardProps {
   onViewRequest: (req: LeaveRequest) => void;
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ user: initialUser, onNewRequest, onEditRequest, onViewRequest }) => {
+const Dashboard: React.FC<DashboardProps> = ({ user, onNewRequest, onEditRequest, onViewRequest }) => {
   const [detailView, setDetailView] = useState<'none' | 'days' | 'hours'>('none');
   const [showPPEModal, setShowPPEModal] = useState(false);
-  const [user, setUser] = useState<User>(initialUser);
   const [refresh, setRefresh] = useState(0);
 
-  // Sincronizar usuario local con el store global
   useEffect(() => {
     const unsubscribe = store.subscribe(() => {
-        if (store.currentUser && store.currentUser.id === initialUser.id) {
-            setUser({ ...store.currentUser });
-        }
-        setRefresh(prev => prev + 1); // Forzar re-renderizado de listas y gráficas
+        setRefresh(prev => prev + 1);
     });
     return unsubscribe;
-  }, [initialUser.id]);
+  }, []);
 
   const requests = store.getMyRequests();
   const nextShiftData = store.getNextShift(user.id);
 
   const handleDelete = async (reqId: string) => {
-      if(confirm('¿Seguro que deseas eliminar esta solicitud pendiente?')) {
+      if(confirm('¿Seguro que deseas eliminar esta solicitud?')) {
           await store.deleteRequest(reqId);
       }
   };
@@ -81,13 +76,20 @@ const Dashboard: React.FC<DashboardProps> = ({ user: initialUser, onNewRequest, 
       if (isAbsence && (req.status === RequestStatus.APPROVED || req.status === RequestStatus.PENDING)) {
           let current = new Date(req.startDate);
           const end = new Date(req.endDate || req.startDate);
+          
+          // Safety Check for invalid dates
+          if (isNaN(current.getTime()) || isNaN(end.getTime())) return;
+
           current.setHours(0,0,0,0);
           end.setHours(0,0,0,0);
+          
           while (current <= end) {
               if (current.getFullYear() === currentYear) {
                   const month = current.getMonth();
-                  if (req.status === RequestStatus.APPROVED) monthlyAbsenceStats[month].approved += 1;
-                  else monthlyAbsenceStats[month].pending += 1;
+                  if (month >= 0 && month < 12) {
+                      if (req.status === RequestStatus.APPROVED) monthlyAbsenceStats[month].approved += 1;
+                      else monthlyAbsenceStats[month].pending += 1;
+                  }
               }
               current.setDate(current.getDate() + 1);
           }
@@ -159,7 +161,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user: initialUser, onNewRequest, 
         <div className="bg-gradient-to-br from-slate-800 to-slate-900 text-white p-6 rounded-2xl shadow-lg relative overflow-hidden">
              <div className="absolute top-0 right-0 p-4 opacity-10"><Briefcase size={64}/></div>
              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Próximo Turno</p>
-             {nextShiftData ? (<><h3 className="text-xl font-bold capitalize">{new Date(nextShiftData.date).toLocaleDateString('es-ES', {weekday: 'long', day: 'numeric'})}</h3><div className="mt-2 inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold bg-white/10 border border-white/20"><span className="w-2 h-2 rounded-full" style={{backgroundColor: nextShiftData.shift.color}}></span>{nextShiftData.shift.name}</div></>) : <div className="text-slate-400 italic text-sm mt-2">Sin turnos próximos.</div>}
+             {nextShiftData && nextShiftData.shift ? (<><h3 className="text-xl font-bold capitalize">{new Date(nextShiftData.date).toLocaleDateString('es-ES', {weekday: 'long', day: 'numeric'})}</h3><div className="mt-2 inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold bg-white/10 border border-white/20"><span className="w-2 h-2 rounded-full" style={{backgroundColor: nextShiftData.shift.color}}></span>{nextShiftData.shift.name}</div></>) : <div className="text-slate-400 italic text-sm mt-2">Sin turnos próximos.</div>}
         </div>
         {stats.map((stat) => (
           <div key={stat.id} onClick={() => stat.clickable && setDetailView(stat.id as any)} className={`bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between group transition-all ${stat.clickable ? 'cursor-pointer hover:shadow-md' : ''}`}>

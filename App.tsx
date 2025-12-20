@@ -21,12 +21,9 @@ import {
   Menu, 
   Bell,
   Plus,
-  X,
   Info,
   Loader2,
-  Lock,
   ArrowRight,
-  UserCircle,
   HelpCircle,
   HardHat,
   CalendarClock
@@ -48,7 +45,7 @@ const Login = ({ onLogin }: { onLogin: (u: User) => void }) => {
         await store.init();
         const user = await store.login(email, pass);
         if (user) onLogin(user); else setError('Credenciales inválidas.');
-    } catch (e) { setError('Error de conexión.'); } finally { setLoading(false); }
+    } catch (e) { setError('Error de conexión con la base de datos.'); } finally { setLoading(false); }
   };
 
   return (
@@ -80,6 +77,7 @@ const Login = ({ onLogin }: { onLogin: (u: User) => void }) => {
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
+  const [initializing, setInitializing] = useState(true);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [showRequestModal, setShowRequestModal] = useState(false);
   const [modalInitialTab, setModalInitialTab] = useState<'absence' | 'overtime'>('absence');
@@ -87,7 +85,19 @@ export default function App() {
   const [viewingRequest, setViewingRequest] = useState<LeaveRequest | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  // Suscribirse a cambios en el store para refrescar el objeto 'user'
+  useEffect(() => {
+    const initApp = async () => {
+        try {
+          await store.init();
+          if (store.currentUser) {
+              setUser({ ...store.currentUser });
+          }
+        } catch(e) { console.error("App Init Error:", e); }
+        finally { setInitializing(false); }
+    };
+    initApp();
+  }, []);
+
   useEffect(() => {
     if (!user) return;
     const unsubscribe = store.subscribe(() => {
@@ -98,10 +108,23 @@ export default function App() {
     return unsubscribe;
   }, [user?.id]);
 
+  if (initializing) return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-900 text-white">
+        <Loader2 className="animate-spin text-blue-500 w-12 h-12" />
+    </div>
+  );
+
   if (!user) return <Login onLogin={setUser} />;
+
+  const handleLogout = () => {
+      store.logout();
+      setUser(null);
+  };
 
   const isSupervisor = user.role === Role.SUPERVISOR || user.role === Role.ADMIN;
   const isAdmin = user.role === Role.ADMIN;
+  
+  // Estos cálculos podrían fallar si store.notifications no está bien mapeado
   const pendingCount = isSupervisor ? store.getPendingApprovalsForUser(user.id).length : 0;
   const unreadCount = store.getNotificationsForUser(user.id).filter(n => !n.read).length;
 
@@ -145,7 +168,7 @@ export default function App() {
             <img src={user.avatar} className="w-10 h-10 rounded-full border-2 border-slate-700 object-cover" />
             <div className="flex-1 min-w-0"><p className="text-sm font-medium truncate">{user.name}</p></div>
           </div>
-          <button onClick={() => setUser(null)} className="w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm transition-colors text-slate-300"><LogOut size={16} /> Salir</button>
+          <button onClick={handleLogout} className="w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm transition-colors text-slate-300"><LogOut size={16} /> Salir</button>
         </div>
       </aside>
 
