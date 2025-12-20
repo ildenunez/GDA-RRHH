@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
   <head>
@@ -63,32 +62,13 @@
 
       @media print {
         @page { margin: 0; }
-        
-        /* Reset containers to allow full page printing */
-        html, body, #root, main, .overflow-auto {
-          height: auto !important;
-          overflow: visible !important;
-          background: white !important;
-        }
-
-        /* Hide UI elements */
-        aside, header, button:not(.print-button) { 
-          display: none !important; 
-        }
-        
-        /* Targeted hiding for SPA structure */
-        body > div#root > div > div > aside { display: none !important; }
-        body > div#root > div > main > header { display: none !important; }
-
-        /* Ensure modals and content take full width */
+        body { background: white; -webkit-print-color-adjust: exact; }
+        aside, header, button:not(.print-button) { display: none !important; }
+        /* Ocultar todo lo que no sea el modal de reporte */
+        body > div#root > div > div > aside { display: none; }
+        body > div#root > div > main > header { display: none; }
+        /* Asegurarse de que el modal ocupe todo */
         .fixed { position: absolute; z-index: 9999; }
-        .min-h-screen { min-height: 0 !important; }
-        
-        /* Force background graphics */
-        * {
-          -webkit-print-color-adjust: exact !important;
-          print-color-adjust: exact !important;
-        }
       }
     </style>
   <script type="importmap">
@@ -105,7 +85,6 @@
   }
 }
 </script>
-<link rel="stylesheet" href="/index.css">
 </head>
   <body class="bg-slate-50 text-slate-900 font-sans antialiased">
     <div id="root"></div>

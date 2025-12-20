@@ -45,7 +45,7 @@ class Store {
         const { data: ppeTypes } = await supabase.from('ppe_types').select('*');
         const { data: ppeRequests } = await supabase.from('ppe_requests').select('*');
         const { data: notificationsData } = await supabase.from('notifications').select('*');
-        const { data: smtpData } = await supabase.from('settings').select('value').eq('key', 'smtp').maybeSingle();
+        const { data: settingsData } = await supabase.from('settings').select('*');
 
         if (usersData) this.users = this.mapUsersFromDB(usersData);
         if (deptsData) this.departments = deptsData.map((d: any) => ({ id: d.id, name: String(d.name || ''), supervisorIds: d.supervisor_ids || [] }));
@@ -57,7 +57,27 @@ class Store {
         if (ppeTypes) this.config.ppeTypes = ppeTypes.map((p: any) => ({ id: p.id, name: String(p.name || ''), sizes: p.sizes || [] }));
         if (ppeRequests) this.config.ppeRequests = ppeRequests.map((r: any) => ({ id: r.id, userId: r.user_id, typeId: r.type_id, type_id: r.type_id, size: String(r.size || ''), status: r.status, createdAt: String(r.created_at || ''), deliveryDate: r.delivery_date }));
         if (notificationsData) this.notifications = this.mapNotificationsFromDB(notificationsData);
-        if (smtpData) this.config.smtpSettings = smtpData.value;
+        
+        // Load Settings
+        if (settingsData) {
+            const smtp = settingsData.find(s => s.key === 'smtp');
+            if (smtp) this.config.smtpSettings = smtp.value;
+
+            const templates = settingsData.find(s => s.key === 'email_templates');
+            if (templates && Array.isArray(templates.value)) {
+                this.config.emailTemplates = templates.value;
+                const defaults = this.getDefaultEmailTemplates();
+                defaults.forEach(d => {
+                    if (!this.config.emailTemplates.find(t => t.id === d.id)) {
+                        this.config.emailTemplates.push(d);
+                    }
+                });
+            } else {
+                this.config.emailTemplates = this.getDefaultEmailTemplates();
+            }
+        } else {
+             this.config.emailTemplates = this.getDefaultEmailTemplates();
+        }
         
         const savedUser = localStorage.getItem('gda_session');
         if (savedUser) {
@@ -75,6 +95,60 @@ class Store {
     }
   }
 
+  private getDefaultEmailTemplates(): EmailTemplate[] {
+      return [
+          {
+              id: 'request_created',
+              label: 'Ausencia: Nueva Solicitud',
+              subject: 'Nueva solicitud de {tipo} - {empleado}',
+              body: 'Hola,\n\nSe ha registrado una nueva solicitud de {tipo} para el empleado {empleado}.\n\nFechas: {fechas}\nMotivo: {motivo}\n\nPor favor, acceda al panel para gestionarla.',
+              recipients: { worker: true, supervisor: true, admin: false }
+          },
+          {
+              id: 'request_approved',
+              label: 'Ausencia: Aprobada',
+              subject: 'Solicitud Aprobada: {tipo}',
+              body: 'Hola {empleado},\n\nTu solicitud de {tipo} para las fechas {fechas} ha sido APROBADA por {supervisor}.\n\nObservaciones: {comentario_admin}\n\nDisfruta de tu tiempo.',
+              recipients: { worker: true, supervisor: false, admin: false }
+          },
+          {
+              id: 'request_rejected',
+              label: 'Ausencia: Rechazada',
+              subject: 'Solicitud Rechazada: {tipo}',
+              body: 'Hola {empleado},\n\nTu solicitud de {tipo} para las fechas {fechas} ha sido RECHAZADA.\n\nMotivo del rechazo: {comentario_admin}\n\nContacta con tu supervisor para más detalles.',
+              recipients: { worker: true, supervisor: false, admin: false }
+          },
+          {
+              id: 'overtime_created',
+              label: 'Horas: Nuevo Registro',
+              subject: 'Nuevo registro de horas - {empleado}',
+              body: 'Hola,\n\nEl empleado {empleado} ha registrado horas extra / festivo trabajado.\n\nCantidad: {horas}h\nFecha: {fechas}\n\nPendiente de aprobación.',
+              recipients: { worker: true, supervisor: true, admin: false }
+          },
+          {
+              id: 'overtime_approved',
+              label: 'Horas: Aprobadas',
+              subject: 'Horas Extra Aprobadas',
+              body: 'Hola {empleado},\n\nTu registro de horas del día {fechas} ha sido validado correctamente y añadido a tu saldo.\n\nSaldo actual: {saldo_horas}h',
+              recipients: { worker: true, supervisor: false, admin: false }
+          },
+          {
+              id: 'overtime_consumed',
+              label: 'Horas: Canje por Días',
+              subject: 'Solicitud de Canje de Horas',
+              body: 'Hola,\n\n{empleado} solicita canjear {horas}h de su saldo por descanso el día {fechas}.\n\nPor favor, valide la solicitud.',
+              recipients: { worker: true, supervisor: true, admin: false }
+          },
+          {
+              id: 'adjustment_applied',
+              label: 'Regularización Admin',
+              subject: 'Ajuste de Saldo en su cuenta',
+              body: 'Hola {empleado},\n\nSe ha realizado una regularización manual en su saldo de vacaciones/horas.\n\nMotivo: {motivo}\n\nConsulte su perfil para ver el saldo actualizado.',
+              recipients: { worker: true, supervisor: false, admin: false }
+          }
+      ];
+  }
+
   private mapUsersFromDB(data: any[]): User[] {
       return data.map(u => ({
           id: u.id,
@@ -90,7 +164,7 @@ class Store {
 
   private mapRequestsFromDB(data: any[]): LeaveRequest[] {
       return data.map(r => ({
-          id: r.id, 
+          id: String(r.id), // Ensure ID is string for strict equality checks
           userId: r.user_id, 
           typeId: r.type_id, 
           label: String(r.label || 'Solicitud'), 
@@ -140,11 +214,13 @@ class Store {
       this.notify();
   }
 
+  // Helper function to calculate Days/Hours impact
   private calculateRequestImpact(typeId: string, startDate: string, endDate?: string, hours?: number) {
       let deltaDays = 0;
       let deltaHours = 0;
       const leaveType = this.config.leaveTypes.find(t => t.id === typeId);
 
+      // 1. Absences
       if (leaveType && leaveType.subtractsDays) {
           const start = new Date(startDate);
           const end = new Date(endDate || startDate);
@@ -152,17 +228,18 @@ class Store {
             start.setHours(0,0,0,0);
             end.setHours(0,0,0,0);
             const diffDays = Math.ceil(Math.abs(end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-            deltaDays = -diffDays;
+            deltaDays = -diffDays; // Subtract days
           }
       }
 
+      // 2. Overtime Logic
       switch (typeId) {
           case RequestType.OVERTIME_EARN: deltaHours = +(hours || 0); break;
           case RequestType.OVERTIME_PAY:
           case RequestType.OVERTIME_SPEND_DAYS: deltaHours = -(hours || 0); break;
-          case RequestType.ADJUSTMENT_DAYS: deltaDays = +(hours || 0); break;
-          case RequestType.ADJUSTMENT_OVERTIME: deltaHours = +(hours || 0); break;
-          case RequestType.WORKED_HOLIDAY: deltaDays = +1; break;
+          case RequestType.ADJUSTMENT_DAYS: deltaDays = +(hours || 0); break; // Add/Sub based on sign
+          case RequestType.ADJUSTMENT_OVERTIME: deltaHours = +(hours || 0); break; // Add/Sub based on sign
+          case RequestType.WORKED_HOLIDAY: deltaDays = +1; break; // Add 1 day
       }
       return { deltaDays, deltaHours };
   }
@@ -177,10 +254,16 @@ class Store {
 
     if (inserted) {
       this.requests.push(this.mapRequestsFromDB([inserted])[0]);
-      if (status === RequestStatus.APPROVED || (data.typeId === RequestType.ADJUSTMENT_DAYS || data.typeId === RequestType.ADJUSTMENT_OVERTIME)) {
+      
+      // LOGIC CHANGE: Deduct balance on PENDING or APPROVED.
+      if (status === RequestStatus.PENDING || status === RequestStatus.APPROVED) {
           const { deltaDays, deltaHours } = this.calculateRequestImpact(data.typeId, data.startDate, data.endDate, data.hours);
-          const u = this.users.find(usr => usr.id === userId);
-          if (u) await this.updateUserBalance(userId, u.daysAvailable + deltaDays, u.overtimeHours + deltaHours);
+          const isEarning = [RequestType.OVERTIME_EARN, RequestType.WORKED_HOLIDAY, RequestType.ADJUSTMENT_DAYS, RequestType.ADJUSTMENT_OVERTIME].includes(data.typeId);
+          
+          if (!isEarning || status === RequestStatus.APPROVED) {
+             const u = this.users.find(usr => usr.id === userId);
+             if (u) await this.updateUserBalance(userId, u.daysAvailable + deltaDays, u.overtimeHours + deltaHours);
+          }
       }
       this.notify();
     }
@@ -203,27 +286,56 @@ class Store {
     }
   }
 
-  async updateRequestStatus(id: string, status: RequestStatus, adminId: string, adminComment?: string) {
+  async updateRequestStatus(id: string, newStatus: RequestStatus, adminId: string, adminComment?: string) {
     const oldReq = this.requests.find(r => r.id === id);
     if (!oldReq) return;
+    const oldStatus = oldReq.status;
 
-    if (oldReq.status !== RequestStatus.APPROVED && status === RequestStatus.APPROVED) {
-        const { deltaDays, deltaHours } = this.calculateRequestImpact(oldReq.typeId, oldReq.startDate, oldReq.endDate, oldReq.hours);
-        const u = this.users.find(usr => usr.id === oldReq.userId);
-        if (u) await this.updateUserBalance(u.id, u.daysAvailable + deltaDays, u.overtimeHours + deltaHours);
-    } else if (oldReq.status === RequestStatus.APPROVED && status !== RequestStatus.APPROVED) {
-        const { deltaDays, deltaHours } = this.calculateRequestImpact(oldReq.typeId, oldReq.startDate, oldReq.endDate, oldReq.hours);
-        const u = this.users.find(usr => usr.id === oldReq.userId);
-        if (u) await this.updateUserBalance(u.id, u.daysAvailable - deltaDays, u.overtimeHours - deltaHours);
+    // Calculate Impact
+    const { deltaDays, deltaHours } = this.calculateRequestImpact(oldReq.typeId, oldReq.startDate, oldReq.endDate, oldReq.hours);
+    const isEarning = [RequestType.OVERTIME_EARN, RequestType.WORKED_HOLIDAY].includes(oldReq.typeId as RequestType);
+    
+    let applyChange = false;
+    let multiplier = 0; // 1 = Add Impact, -1 = Revert Impact
+
+    if (oldStatus === RequestStatus.PENDING && newStatus === RequestStatus.APPROVED) {
+        if (isEarning) { applyChange = true; multiplier = 1; }
+    } 
+    else if ((oldStatus === RequestStatus.PENDING || oldStatus === RequestStatus.APPROVED) && newStatus === RequestStatus.REJECTED) {
+        if (!isEarning || oldStatus === RequestStatus.APPROVED) {
+            applyChange = true; multiplier = -1; 
+        }
+    }
+    else if (oldStatus === RequestStatus.REJECTED && (newStatus === RequestStatus.APPROVED || newStatus === RequestStatus.PENDING)) {
+        if (!isEarning || newStatus === RequestStatus.APPROVED) {
+            applyChange = true; multiplier = 1;
+        }
     }
 
-    await supabase.from('requests').update({ status, admin_comment: adminComment }).eq('id', id);
+    if (applyChange) {
+        const u = this.users.find(usr => usr.id === oldReq.userId);
+        if (u) {
+            await this.updateUserBalance(u.id, u.daysAvailable + (deltaDays * multiplier), u.overtimeHours + (deltaHours * multiplier));
+        }
+    }
+
+    await supabase.from('requests').update({ status: newStatus, admin_comment: adminComment }).eq('id', id);
     const idx = this.requests.findIndex(r => r.id === id);
     if (idx !== -1) {
-        this.requests[idx].status = status;
+        this.requests[idx].status = newStatus;
         this.requests[idx].adminComment = adminComment;
     }
     this.notify();
+  }
+
+  async updateJustification(id: string, isJustified: boolean, reportedToAdmin: boolean) {
+      await supabase.from('requests').update({ is_justified: isJustified, reported_to_admin: reportedToAdmin }).eq('id', id);
+      const req = this.requests.find(r => r.id === id);
+      if (req) {
+          req.isJustified = isJustified;
+          req.reportedToAdmin = reportedToAdmin;
+          this.notify();
+      }
   }
 
   async updateUserBalance(id: string, daysAvailable: number, overtimeHours: number) {
@@ -256,6 +368,12 @@ class Store {
       this.users.push(newUser);
       this.notify();
     }
+  }
+
+  async deleteUser(id: string) {
+      await supabase.from('users').delete().eq('id', id);
+      this.users = this.users.filter(u => u.id !== id);
+      this.notify();
   }
 
   async updateUserAdmin(userId: string, data: Partial<User>) {
@@ -311,11 +429,22 @@ class Store {
 
   async deleteRequest(id: string) {
     const req = this.requests.find(r => r.id === id);
-    if (req && req.status === RequestStatus.APPROVED) {
+    if (!req) return;
+
+    // Refund logic on delete if status was Pending or Approved
+    if (req.status === RequestStatus.APPROVED || req.status === RequestStatus.PENDING) {
         const { deltaDays, deltaHours } = this.calculateRequestImpact(req.typeId, req.startDate, req.endDate, req.hours);
-        const u = this.users.find(usr => usr.id === req.userId);
-        if (u) await this.updateUserBalance(u.id, u.daysAvailable - deltaDays, u.overtimeHours - deltaHours);
+        const isEarning = [RequestType.OVERTIME_EARN, RequestType.WORKED_HOLIDAY].includes(req.typeId as RequestType);
+        
+        // If it was Pending Earning, no balance was added yet, so nothing to revert.
+        // Otherwise (Pending Spending, Approved Spending, Approved Earning), revert impact.
+        if (!isEarning || req.status === RequestStatus.APPROVED) {
+            const u = this.users.find(usr => usr.id === req.userId);
+            // Invert delta to refund
+            if (u) await this.updateUserBalance(u.id, u.daysAvailable - deltaDays, u.overtimeHours - deltaHours);
+        }
     }
+
     await supabase.from('requests').delete().eq('id', id);
     this.requests = this.requests.filter(r => r.id !== id);
     this.notify();
@@ -382,6 +511,158 @@ class Store {
     if (data) { const mapped = { id: data.id, userId: data.user_id, typeId: data.type_id, type_id: data.type_id, size: data.size, status: data.status, createdAt: data.created_at, deliveryDate: data.delivery_date }; this.config.ppeRequests.push(mapped); this.notify(); }
   }
   async deliverPPERequest(id: string) { const d = new Date().toISOString(); await supabase.from('ppe_requests').update({ status: 'ENTREGADO', delivery_date: d }).eq('id', id); const req = this.config.ppeRequests.find(r => r.id === id); if (req) { req.status = 'ENTREGADO'; req.deliveryDate = d; this.notify(); } }
+
+  // --- Admin Config Methods ---
+  
+  // Department Methods
+  async createDepartment(name: string, supervisorIds: string[]) {
+      const { data } = await supabase.from('departments').insert({ name, supervisor_ids: supervisorIds }).select().single();
+      if(data) { this.departments.push({ id: data.id, name: data.name, supervisorIds: data.supervisor_ids }); this.notify(); }
+  }
+  async updateDepartment(id: string, name: string, supervisorIds: string[]) {
+      await supabase.from('departments').update({ name, supervisor_ids: supervisorIds }).eq('id', id);
+      const d = this.departments.find(dep => dep.id === id);
+      if(d) { d.name = name; d.supervisorIds = supervisorIds; this.notify(); }
+  }
+  async deleteDepartment(id: string) {
+      await supabase.from('departments').delete().eq('id', id);
+      this.departments = this.departments.filter(d => d.id !== id);
+      this.notify();
+  }
+
+  // Holiday Methods
+  async createHoliday(date: string, name: string) {
+    const { data } = await supabase.from('holidays').insert({ date, name }).select().single();
+    if (data) { this.config.holidays.push({ id: data.id, date: data.date, name: data.name }); this.notify(); }
+  }
+  async updateHoliday(id: string, date: string, name: string) {
+      await supabase.from('holidays').update({ date, name }).eq('id', id);
+      const h = this.config.holidays.find(ho => ho.id === id);
+      if(h) { h.date = date; h.name = name; this.notify(); }
+  }
+  async deleteHoliday(id: string) {
+    await supabase.from('holidays').delete().eq('id', id);
+    this.config.holidays = this.config.holidays.filter(h => h.id !== id);
+    this.notify();
+  }
+
+  // Leave Type Methods
+  async createLeaveType(label: string, subtractsDays: boolean, fixedRange?: {startDate: string, endDate: string} | null) {
+     const { data } = await supabase.from('leave_types').insert({ label, subtracts_days: subtractsDays, fixed_range: fixedRange }).select().single();
+     if(data) { this.config.leaveTypes.push({ id: data.id, label: data.label, subtractsDays: !!data.subtracts_days, fixedRange: data.fixed_range }); this.notify(); }
+  }
+  async deleteLeaveType(id: string) {
+    await supabase.from('leave_types').delete().eq('id', id);
+    this.config.leaveTypes = this.config.leaveTypes.filter(t => t.id !== id);
+    this.notify();
+  }
+
+  // Shift Type Methods
+  async createShiftType(name: string, color: string, start: string, end: string) {
+    const segments = [{ start, end }];
+    const { data } = await supabase.from('shift_types').insert({ name, color, segments }).select().single();
+    if (data) {
+        this.config.shiftTypes.push({ id: data.id, name: data.name, color: data.color, segments: data.segments });
+        this.notify();
+    }
+  }
+  async deleteShiftType(id: string) {
+      await supabase.from('shift_types').delete().eq('id', id);
+      this.config.shiftTypes = this.config.shiftTypes.filter(s => s.id !== id);
+      this.notify();
+  }
+
+  // PPE Type Methods
+  async createPPEType(name: string, sizes: string[]) {
+      const { data } = await supabase.from('ppe_types').insert({ name, sizes }).select().single();
+      if(data) { this.config.ppeTypes.push({ id: data.id, name: data.name, sizes: data.sizes }); this.notify(); }
+  }
+  async updatePPEType(id: string, name: string, sizes: string[]) {
+      const { data } = await supabase.from('ppe_types').update({ name, sizes }).eq('id', id).select().single();
+      if (data) {
+          const idx = this.config.ppeTypes.findIndex(p => p.id === id);
+          if (idx !== -1) {
+              this.config.ppeTypes[idx] = { id: data.id, name: data.name, sizes: data.sizes };
+              this.notify();
+          }
+      }
+  }
+  async deletePPEType(id: string) {
+      await supabase.from('ppe_types').delete().eq('id', id);
+      this.config.ppeTypes = this.config.ppeTypes.filter(p => p.id !== id);
+      this.notify();
+  }
+
+  // SMTP & Communications Methods
+  async saveSmtpSettings(settings: AppConfig['smtpSettings']) {
+      const { error } = await supabase.from('settings').upsert({ key: 'smtp', value: settings });
+      if (!error) {
+          this.config.smtpSettings = settings;
+          this.notify();
+      }
+  }
+
+  async saveEmailTemplates(templates: EmailTemplate[]) {
+      const { error } = await supabase.from('settings').upsert({ key: 'email_templates', value: templates });
+      if (!error) {
+          this.config.emailTemplates = templates;
+          this.notify();
+      }
+  }
+
+  async sendMassNotification(userIds: string[], message: string) {
+      const notifications = userIds.map(uid => ({
+          user_id: uid,
+          message,
+          read: false,
+          created_at: new Date().toISOString()
+      }));
+      
+      const { error } = await supabase.from('notifications').insert(notifications);
+      if(!error) {
+          userIds.forEach(uid => {
+               this.notifications.push({
+                   id: crypto.randomUUID(),
+                   userId: uid,
+                   message,
+                   read: false,
+                   date: new Date().toISOString()
+               });
+          });
+          this.notify();
+      }
+  }
+
+  getRequestConflicts(request: LeaveRequest) {
+    const user = this.users.find(u => u.id === request.userId);
+    if (!user) return [];
+    
+    // Check conflicts with Approved requests AND Pending requests (excluding self)
+    // Only check absences, not earning overtime records
+    return this.requests.filter(r => {
+        if (r.id === request.id) return false;
+        if (this.isOvertimeRequest(r.typeId)) return false; 
+        
+        // Only consider APPROVED or PENDING conflicts
+        if (r.status === RequestStatus.REJECTED) return false;
+
+        const otherUser = this.users.find(u => u.id === r.userId);
+        if (!otherUser || otherUser.departmentId !== user.departmentId) return false;
+
+        const startA = request.startDate.split('T')[0];
+        const endA = request.endDate ? request.endDate.split('T')[0] : startA;
+        const startB = r.startDate.split('T')[0];
+        const endB = r.endDate ? r.endDate.split('T')[0] : startB;
+
+        return (startA <= endB && endA >= startB);
+    });
+  }
+
+  async startNewYear() {
+      for (const u of this.users) {
+          await this.updateUserBalance(u.id, (u.daysAvailable || 0) + 31, u.overtimeHours);
+      }
+  }
 }
 
 export const store = new Store();

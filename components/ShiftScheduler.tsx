@@ -1,16 +1,17 @@
 
 import React, { useState, useMemo } from 'react';
-import { User, ShiftType } from '../types';
+import { User, ShiftType, RequestStatus } from '../types';
 import { store } from '../services/store';
-import { ChevronLeft, ChevronRight, Check } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Check, Filter } from 'lucide-react';
 
 interface ShiftSchedulerProps {
   users: User[];
 }
 
-const ShiftScheduler: React.FC<ShiftSchedulerProps> = ({ users }) => {
+const ShiftScheduler: React.FC<ShiftSchedulerProps> = ({ users: allUsers }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedShiftId, setSelectedShiftId] = useState<string | 'eraser'>('');
+  const [selectedDept, setSelectedDept] = useState<string>('');
   
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
@@ -18,15 +19,19 @@ const ShiftScheduler: React.FC<ShiftSchedulerProps> = ({ users }) => {
   const monthName = currentDate.toLocaleString('es-ES', { month: 'long', year: 'numeric' });
 
   const shifts = store.config.shiftTypes;
+  const departments = store.departments;
+
+  const filteredUsers = useMemo(() => {
+      if (!selectedDept) return allUsers;
+      return allUsers.filter(u => u.departmentId === selectedDept);
+  }, [allUsers, selectedDept]);
 
   const handleCellClick = (userId: string, day: number) => {
       if (!selectedShiftId) return;
-      // FIX: Construct local date string manually
       const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
       const typeId = selectedShiftId === 'eraser' ? '' : selectedShiftId;
       
       store.assignShift(userId, dateStr, typeId);
-      // Force refresh
       setCurrentDate(new Date(currentDate)); 
   };
 
@@ -34,18 +39,31 @@ const ShiftScheduler: React.FC<ShiftSchedulerProps> = ({ users }) => {
     <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden flex flex-col h-[600px]">
         
         {/* Toolbar */}
-        <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-            <div className="flex items-center gap-4">
+        <div className="p-4 border-b border-slate-100 flex flex-col xl:flex-row justify-start items-start xl:items-center bg-slate-50 gap-6">
+            <div className="flex items-center gap-4 shrink-0">
                 <button onClick={() => setCurrentDate(new Date(year, month - 1, 1))} className="p-2 hover:bg-white rounded-lg"><ChevronLeft size={20}/></button>
                 <h2 className="text-lg font-bold capitalize text-slate-800 w-40 text-center">{monthName}</h2>
                 <button onClick={() => setCurrentDate(new Date(year, month + 1, 1))} className="p-2 hover:bg-white rounded-lg"><ChevronRight size={20}/></button>
             </div>
 
-            <div className="flex items-center gap-2 overflow-x-auto max-w-2xl px-2">
-                <span className="text-xs font-bold text-slate-400 uppercase mr-2">Herramientas:</span>
+            {/* Dept Filter */}
+            <div className="relative shrink-0">
+                <Filter className="absolute left-3 top-2.5 text-slate-400 w-4 h-4"/>
+                <select 
+                    className="pl-9 pr-4 py-2 border rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-200 outline-none"
+                    value={selectedDept}
+                    onChange={(e) => setSelectedDept(e.target.value)}
+                >
+                    <option value="">Todos los Departamentos</option>
+                    {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </select>
+            </div>
+
+            <div className="flex items-center gap-2 overflow-x-auto w-full xl:w-auto px-2 pb-2 xl:pb-0">
+                <span className="text-xs font-bold text-slate-400 uppercase mr-2 shrink-0">Herramientas:</span>
                 <button 
                     onClick={() => setSelectedShiftId('eraser')}
-                    className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-sm font-medium transition-all ${selectedShiftId === 'eraser' ? 'bg-slate-800 text-white border-slate-800 ring-2 ring-slate-200' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'}`}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-sm font-medium transition-all whitespace-nowrap ${selectedShiftId === 'eraser' ? 'bg-slate-800 text-white border-slate-800 ring-2 ring-slate-200' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'}`}
                 >
                     Borrar
                 </button>
@@ -53,7 +71,7 @@ const ShiftScheduler: React.FC<ShiftSchedulerProps> = ({ users }) => {
                     <button 
                         key={shift.id}
                         onClick={() => setSelectedShiftId(shift.id)}
-                        className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-sm font-medium transition-all ${selectedShiftId === shift.id ? 'ring-2 ring-offset-1' : 'hover:opacity-80'}`}
+                        className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-sm font-medium transition-all whitespace-nowrap ${selectedShiftId === shift.id ? 'ring-2 ring-offset-1' : 'hover:opacity-80'}`}
                         style={{ 
                             backgroundColor: selectedShiftId === shift.id ? shift.color : 'white', 
                             color: selectedShiftId === shift.id ? 'white' : shift.color,
@@ -76,7 +94,6 @@ const ShiftScheduler: React.FC<ShiftSchedulerProps> = ({ users }) => {
                      <div className="sticky top-0 z-20 bg-slate-100 border-b border-slate-200 font-bold text-slate-600 p-2 flex items-center">Empleado</div>
                      {Array.from({length: daysInMonth}).map((_, i) => {
                          const day = i + 1;
-                         // FIX: Date string construction
                          const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
                          const holiday = store.config.holidays.find(h => h.date === dateStr);
                          const isWeekend = [0,6].includes(new Date(year, month, day).getDay());
@@ -96,7 +113,7 @@ const ShiftScheduler: React.FC<ShiftSchedulerProps> = ({ users }) => {
                      })}
 
                      {/* Rows */}
-                     {users.map(user => (
+                     {filteredUsers.map(user => (
                          <React.Fragment key={user.id}>
                              <div className="sticky left-0 z-10 bg-white border-b border-r border-slate-100 p-2 flex items-center gap-2">
                                  <img src={user.avatar} className="w-6 h-6 rounded-full"/>
@@ -104,23 +121,63 @@ const ShiftScheduler: React.FC<ShiftSchedulerProps> = ({ users }) => {
                              </div>
                              {Array.from({length: daysInMonth}).map((_, i) => {
                                  const day = i + 1;
-                                 // FIX: Date string construction
                                  const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                                 
+                                 // Data Retrieval
                                  const assignment = store.config.shiftAssignments.find(a => a.userId === user.id && a.date === dateStr);
                                  const shift = assignment ? shifts.find(s => s.id === assignment.shiftTypeId) : null;
                                  const holiday = store.config.holidays.find(h => h.date === dateStr);
                                  const isWeekend = [0,6].includes(new Date(year, month, day).getDay());
 
+                                 // Find Request (Absence)
+                                 const activeRequest = store.requests.find(r => {
+                                     const s = r.startDate.split('T')[0];
+                                     const e = (r.endDate || r.startDate).split('T')[0];
+                                     return r.userId === user.id && 
+                                            dateStr >= s && dateStr <= e &&
+                                            !store.isOvertimeRequest(r.typeId) &&
+                                            (r.status === RequestStatus.APPROVED || r.status === RequestStatus.PENDING);
+                                 });
+
+                                 // Styling Logic
+                                 let bgColorClass = '';
+                                 let inlineStyle = {};
+                                 let content = null;
+                                 let title = '';
+
+                                 if (holiday) {
+                                     bgColorClass = 'bg-red-50 hover:bg-red-100 border-red-100';
+                                     title = `Festivo: ${holiday.name}`;
+                                 } else if (activeRequest) {
+                                     const isApproved = activeRequest.status === RequestStatus.APPROVED;
+                                     bgColorClass = isApproved 
+                                        ? 'bg-green-100 hover:bg-green-200 border-green-200' 
+                                        : 'bg-yellow-50 hover:bg-yellow-100 border-yellow-200';
+                                     
+                                     // Initial + Status indicator
+                                     const letter = activeRequest.label.charAt(0).toUpperCase();
+                                     content = (
+                                         <span className={`text-[10px] font-black ${isApproved ? 'text-green-700' : 'text-yellow-700'}`}>
+                                             {letter}{!isApproved && '?'}
+                                         </span>
+                                     );
+                                     title = `${activeRequest.label} (${activeRequest.status})`;
+                                 } else if (shift) {
+                                     inlineStyle = { backgroundColor: shift.color };
+                                     title = `${shift.name} (${shift.segments.map(s => s.start+'-'+s.end).join(', ')})`;
+                                 } else if (isWeekend) {
+                                     bgColorClass = 'bg-slate-50/50';
+                                 }
+
                                  return (
                                      <div 
                                         key={day} 
                                         onClick={() => handleCellClick(user.id, day)}
-                                        className={`border-b border-r border-slate-100 h-10 cursor-pointer transition-colors hover:bg-slate-50 
-                                            ${holiday ? 'bg-red-50 hover:bg-red-100 border-red-100' : isWeekend ? 'bg-slate-50/50' : ''}
-                                        `}
-                                        style={{ backgroundColor: shift ? shift.color : undefined }}
-                                        title={holiday ? `Festivo: ${holiday.name}` : shift ? `${shift.name} (${shift.segments.map(s => s.start+'-'+s.end).join(', ')})` : ''}
+                                        className={`border-b border-r border-slate-100 h-10 cursor-pointer transition-colors hover:bg-slate-50 flex items-center justify-center ${bgColorClass}`}
+                                        style={inlineStyle}
+                                        title={title}
                                      >
+                                         {content}
                                      </div>
                                  );
                              })}

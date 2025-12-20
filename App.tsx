@@ -135,6 +135,8 @@ export default function App() {
     </button>
   );
 
+  const deptName = store.departments.find(d => d.id === user.departmentId)?.name;
+
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden">
       <aside className={`fixed inset-y-0 left-0 z-40 w-64 bg-slate-900 text-white transform transition-transform duration-300 md:translate-x-0 ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
@@ -166,7 +168,10 @@ export default function App() {
         <div className="absolute bottom-0 w-full p-4 border-t border-slate-800">
           <div className="flex items-center gap-3 mb-4 p-2 cursor-pointer hover:bg-slate-800 rounded-lg" onClick={() => setActiveTab('profile')}>
             <img src={user.avatar} className="w-10 h-10 rounded-full border-2 border-slate-700 object-cover" />
-            <div className="flex-1 min-w-0"><p className="text-sm font-medium truncate">{user.name}</p></div>
+            <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium truncate">{user.name}</p>
+                <p className="text-[10px] text-slate-400 truncate uppercase">{deptName || 'Sin Dpto.'}</p>
+            </div>
           </div>
           <button onClick={handleLogout} className="w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm transition-colors text-slate-300"><LogOut size={16} /> Salir</button>
         </div>

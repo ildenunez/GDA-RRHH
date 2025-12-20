@@ -129,8 +129,8 @@ const RequestFormModal: React.FC<RequestFormModalProps> = ({ onClose, user, targ
   const isUnjustified = typeId === RequestType.UNJUSTIFIED;
 
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl p-6 w-full max-w-lg shadow-2xl animate-fade-in-up max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[80] p-4 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl p-6 w-full max-w-lg shadow-2xl animate-scale-in max-h-[90vh] overflow-y-auto">
         <div className="flex justify-between items-center mb-6">
           <div>
               <h2 className="text-xl font-bold text-slate-800">{editingRequest ? 'Editar Registro' : 'Nueva Solicitud / Registro'}</h2>

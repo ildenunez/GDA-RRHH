@@ -2,7 +2,7 @@
 import React, { useState, useRef } from 'react';
 import { User } from '../types';
 import { store } from '../services/store';
-import { Camera, Mail, User as UserIcon, Lock, Save, Loader2, Upload } from 'lucide-react';
+import { Camera, Mail, User as UserIcon, Lock, Save, Loader2, Upload, Briefcase } from 'lucide-react';
 
 interface ProfileViewProps {
   user: User;
@@ -16,6 +16,12 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user, onProfileUpdate }) => {
   const [avatar, setAvatar] = useState(user.avatar || '');
   const [loading, setLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const dept = store.departments.find(d => d.id === user.departmentId);
+  const supervisorNames = dept?.supervisorIds
+    .map(id => store.users.find(u => u.id === id)?.name)
+    .filter(Boolean)
+    .join(', ') || 'No asignado';
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
@@ -107,6 +113,16 @@ const ProfileView: React.FC<ProfileViewProps> = ({ user, onProfileUpdate }) => {
                                     className="w-full pl-10 p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
                                 />
                             </div>
+                        </div>
+
+                        <div>
+                             <label className="block text-sm font-semibold text-slate-700 mb-2">Supervisor Asignado</label>
+                             <div className="relative">
+                                 <Briefcase className="absolute left-3 top-3.5 text-slate-400 w-5 h-5"/>
+                                 <div className="w-full pl-10 p-3 border border-slate-200 rounded-xl bg-slate-50 text-slate-600">
+                                     {supervisorNames}
+                                 </div>
+                             </div>
                         </div>
 
                         <div>
